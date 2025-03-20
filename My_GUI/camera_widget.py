@@ -1,5 +1,5 @@
-import sys
 import cv2
+import sys
 import os
 from datetime import datetime
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QComboBox, QHBoxLayout
@@ -57,7 +57,10 @@ class CameraWidget(QWidget):
     def detect_cameras(self):
         available = []
         for i in range(5):
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            if sys.platform.startswith('win'):
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW) # --> win
+            else:
+                cap = cv2.VideoCapture(i)                # --> linux
             if cap is not None and cap.isOpened():
                 ret, frame = cap.read()
                 if ret:
@@ -69,7 +72,10 @@ class CameraWidget(QWidget):
         if self.cap is not None:
             self.cap.release()
         self.camera_index = index
-        self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+        if sys.platform.startswith('win'):
+            self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)  # --> win
+        else:
+            self.cap = cv2.VideoCapture(index)  # --> linux
 
     def on_camera_change(self, i):
         index = self.combo_cameras.itemData(i)
@@ -87,7 +93,7 @@ class CameraWidget(QWidget):
                 pixmap = QPixmap.fromImage(qimg).scaled(self.label_image.width(), self.label_image.height(), Qt.KeepAspectRatio)
                 self.label_image.setPixmap(pixmap)
 
-    def capture_image(self):
+    def capture_image(self):  # Ha ez később meg lesz tartva, akkor linux-ra is specifikálni kell.
         if self.current_frame is not None:
             base_dir = r"C:\Users\Public\Pictures\MyCaptures"
             date_folder = datetime.now().strftime("%Y.%m.%d")

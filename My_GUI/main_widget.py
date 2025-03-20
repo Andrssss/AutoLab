@@ -1,4 +1,3 @@
-# main_widget.py
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget
 from home_page import HomePageWindow

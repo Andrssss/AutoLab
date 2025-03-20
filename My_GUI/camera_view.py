@@ -1,4 +1,3 @@
-# camera_view.py (javított)
 import cv2
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout
 from PyQt5.QtGui import QImage, QPixmap

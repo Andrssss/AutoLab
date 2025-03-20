@@ -1,5 +1,5 @@
-# settings.py (javított verzió)
 import cv2, os
+import sys
 from datetime import datetime
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QComboBox, QHBoxLayout
 from PyQt5.QtGui import QImage, QPixmap
@@ -45,7 +45,10 @@ class SettingsWidget(QWidget):
     def detect_cameras(self):
         available = []
         for i in range(5):
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            if sys.platform.startswith('win'):
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)  # --> win
+            else:
+                cap = cv2.VideoCapture(i)  # --> linux
             if cap and cap.isOpened():
                 ret, _ = cap.read()
                 if ret:
@@ -68,7 +71,10 @@ class SettingsWidget(QWidget):
         if self.cap:
             self.cap.release()
         self.camera_index = index
-        self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+        if sys.platform.startswith('win'):
+            self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)  # --> win
+        else:
+            self.cap = cv2.VideoCapture(index)  # --> linux
 
     def on_camera_change(self, i):
         index = self.combo_cameras.itemData(i)

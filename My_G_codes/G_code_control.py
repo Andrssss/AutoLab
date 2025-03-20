@@ -1,4 +1,4 @@
-import time
+import time  # File jó linux-on is
 
 class GCodeControl:
     def __init__(self, serial_obj, lock):

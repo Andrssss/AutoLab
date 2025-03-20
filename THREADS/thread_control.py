@@ -1,24 +1,34 @@
 import threading
+from threading import Lock
+
+# Előre definiált zárolások
+lock_map = {
+    "G-code_lock": Lock(),
+    "Camera_lock": Lock(),
+    "common": Lock()
+}
 
 class ThreadControl:
-    def __init__(self, gcode_control):
+    def __init__(self, gcode_control, lock_type):
         """
-        gcode_control: egy GCodeControl objektum, melynek metódusait párhuzamosan szeretnénk futtatni.
+        gcode_control: egy GCodeControl objektum
+        lock_type: string, amely meghatározza a lock típusát (pl. "G-code_lock")
         """
+        if lock_type not in lock_map:
+            raise ValueError(f"Ismeretlen lock típus: {lock_type}")
+
+        self.lock = lock_map[lock_type]  # A megfelelő lock kiválasztása
         self.gcode_control = gcode_control
+        self.gcode_control.set_lock(self.lock)  # A lock továbbadása az objektumnak
 
     def start_threads(self):
         """Elindítja a motorvezérlési parancsokhoz tartozó szálakat."""
-        # Szál az X motor mozgatásához
         x_motor_thread = threading.Thread(target=self.gcode_control.control_x_motor)
-        # Szál az aux kimenetek vezérléséhez
         aux_thread = threading.Thread(target=self.gcode_control.set_aux_output)
 
-        # Szálak indítása
         x_motor_thread.start()
         aux_thread.start()
 
-        # Megvárjuk, amíg mindkét szál befejeződik
         x_motor_thread.join()
         aux_thread.join()
 

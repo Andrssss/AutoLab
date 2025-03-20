@@ -1,4 +1,4 @@
-import time
+import time # File jó linux-on is
 import serial
 import re
 from My_G_codes.trigger import Endstop

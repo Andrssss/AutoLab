@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QFrame, QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
-from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtCore import Qt
 
 class CustomWindow(QFrame):
     def __init__(self, title, widget, parent=None):

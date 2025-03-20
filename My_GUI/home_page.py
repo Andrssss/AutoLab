@@ -1,4 +1,3 @@
-# home_page.py
 from PyQt5.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout
 from PyQt5.QtCore import Qt, QSettings
 from custom_window import CustomWindow
@@ -29,7 +28,7 @@ class HomePage(QWidget):
         self.camera_label.setText(f"Kiválasztott kamera: {cam_index}")
         self.settings.setValue("selected_camera", cam_index)
 
-class HomePageWindow(CustomWindow):
+class HomePageWindow(CustomWindow): #  örökli a CustomWindow-t, amely maga egy konténer.
     def __init__(self, parent=None):
         self.home_widget = HomePage()
         super().__init__("Home Page", self.home_widget, parent)
