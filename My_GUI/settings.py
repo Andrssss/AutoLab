@@ -1,36 +1,24 @@
-import sys
-import cv2
-import os
+# settings.py (javított verzió)
+import cv2, os
 from datetime import datetime
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QComboBox, QHBoxLayout
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from custom_window import CustomWindow
 
-class CameraWidget(QWidget):
+class SettingsWidget(QWidget):
     cameraSelected = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()
-        self.resize(640, 480)  # Ajánlott kamera-widget méret
+        self.resize(640, 480)
         self.camera_index = None
         self.cap = None
         self.current_frame = None
 
         self.initUI()
-        self.available_cams = self.detect_cameras()
-        if not self.available_cams:
-            print("Nem található elérhető kamera.")
-            self.close()
-        else:
-            for index in self.available_cams:
-                self.combo_cameras.addItem(f"Camera {index}", index)
-            self.combo_cameras.setCurrentIndex(0)
-            self.set_camera(self.available_cams[0])
-
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -50,23 +38,34 @@ class CameraWidget(QWidget):
         self.btn_select = QPushButton("Select")
         self.btn_select.clicked.connect(self.select_camera)
         btn_layout.addWidget(self.btn_select)
-        layout.addLayout(btn_layout)
 
+        layout.addLayout(btn_layout)
         self.setLayout(layout)
 
     def detect_cameras(self):
         available = []
         for i in range(5):
             cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-            if cap is not None and cap.isOpened():
-                ret, frame = cap.read()
+            if cap and cap.isOpened():
+                ret, _ = cap.read()
                 if ret:
                     available.append(i)
                 cap.release()
         return available
 
+    def start_camera(self):
+        self.available_cams = self.detect_cameras()
+        if not self.available_cams:
+            print("Nem található elérhető kamera.")
+            return
+        self.combo_cameras.clear()
+        for index in self.available_cams:
+            self.combo_cameras.addItem(f"Camera {index}", index)
+        self.set_camera(self.available_cams[0])
+        self.timer.start(30)
+
     def set_camera(self, index):
-        if self.cap is not None:
+        if self.cap:
             self.cap.release()
         self.camera_index = index
         self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
@@ -76,15 +75,15 @@ class CameraWidget(QWidget):
         self.set_camera(index)
 
     def update_frame(self):
-        if self.cap is not None and self.cap.isOpened():
+        if self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret:
                 self.current_frame = frame
                 rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                height, width, channel = rgb_image.shape
-                bytes_per_line = 3 * width
-                qimg = QImage(rgb_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
-                pixmap = QPixmap.fromImage(qimg).scaled(self.label_image.width(), self.label_image.height(), Qt.KeepAspectRatio)
+                h, w, ch = rgb_image.shape
+                bytes_per_line = ch * w
+                qimg = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                pixmap = QPixmap.fromImage(qimg).scaled(self.label_image.size(), Qt.KeepAspectRatio)
                 self.label_image.setPixmap(pixmap)
 
     def capture_image(self):
@@ -100,15 +99,22 @@ class CameraWidget(QWidget):
 
     def select_camera(self):
         self.cameraSelected.emit(self.camera_index)
-        print(f"Selected camera {self.camera_index}")
-        self.close()
+        self.close()  # Ez fogja triggerelni a closeEvent-et!
+
+    def close_camera(self):
+        self.timer.stop()
+        if self.cap:
+            self.cap.release()
+            self.cap = None
 
     def closeEvent(self, event):
-        if self.cap is not None:
-            self.cap.release()
+        self.close_camera()
         event.accept()
 
-class CameraWidgetWindow(CustomWindow):
+class SettingsWindow(CustomWindow):
     def __init__(self, parent=None):
-        super().__init__("Camera Widget", CameraWidget(), parent)
+        self.settings_widget = SettingsWidget()
+        super().__init__("Settings", self.settings_widget, parent)
 
+    def start_camera(self):
+        self.settings_widget.start_camera()
