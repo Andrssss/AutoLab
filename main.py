@@ -24,6 +24,10 @@ def main():
 
     # GCodeControl objektum létrehozása és szál elindítása.
     gcode_control = GCodeControl(ser)
+
+    # "G-code_lock": Lock(),
+    # "Camera_lock": Lock(),
+    # "common":      Lock()
     lock_type = "G-code_lock"  # Változtathatod pl. "Camera_lock" vagy "common"-ra
     thread_ctrl = ThreadControl(gcode_control, lock_type)
     thread_ctrl.start_threads()
