@@ -1,20 +1,32 @@
-import time # File jó linux-on is
+import time
 
 class GCodeControl:
     def __init__(self, serial_obj, lock):
-        """
-        serial_obj: egy pySerial Serial objektum, pl. serial.Serial('COM6', 250000, timeout=1)
-        lock: threading.Lock objektum a szinkronizált kommunikációhoz
-        """
         self.serial = serial_obj
         self.lock = lock
+
+    def wait_for_ok(self, timeout=5):
+        """
+        Vár az "ok" visszajelzésre a soros porton.
+        timeout: hány másodpercig várjon maximum.
+        """
+        start_time = time.time()
+        while True:
+            with self.lock:
+                # Olvasunk egy sort a soros porton.
+                response = self.serial.readline().decode('utf-8', errors='ignore').strip().lower()
+            if "ok" in response:
+                return response
+            if time.time() - start_time > timeout:
+                print("G wait_for_ok TIMEOUT")
+                return None
+
 
     def send_command(self, command, wait_for_completion=False):
         """
         Küld egy G‑kód parancsot a soros porton keresztül.
-        Ha wait_for_completion=True, az M400 parancsot is küldi, hogy megvárja a mozgás befejeződését.
-        Az alapértelmezett, wait_for_completion=False esetén csak elküldi a parancsot (és röviden vár, hogy ne
-        kerüljenek egymásra a soros üzenetek).
+        Ha wait_for_completion=True, az M400 parancsot is küldi, hogy megvárja a mozgás befejeződését,
+        és az "ok" visszajelzést is figyeli.
         """
         with self.lock:
             self.serial.write(command.encode('utf-8'))
@@ -24,6 +36,12 @@ class GCodeControl:
             with self.lock:
                 self.serial.write("M400 \n".encode('utf-8'))
             time.sleep(0.1)
+            # Várakozás az "ok" visszajelzésre.
+            ok_response = self.wait_for_ok(timeout=5)
+            if ok_response is None:
+                print("Figyelmeztetés: Az 'ok' visszajelzés nem érkezett meg időn belül.")
+            else:
+                print("Visszajelzés: ", ok_response)
 
     def control_x_motor(self):
         """Példa: X motor mozgatása. A mozgás végén várja a befejeződést."""
@@ -35,11 +53,11 @@ class GCodeControl:
         """
         Példa: Aux kimenetek ki-/bekapcsolása.
         Itt nem várunk semmire, azaz nem hívjuk az M400-et, így a printer azonnal
-        végrehajtja a parancsokat, függetlenül attól, hogy a kimenet be- vagy kikapcsolódik-e.
+        végrehajtja a parancsokat.
         """
-        for _ in range(3):
-            self.send_command("M42 P58 S200 \n")  # Aux kimenet bekapcsolása
-            self.send_command("M42 P58 S0 \n")    # Aux kimenet kikapcsolása
+        for _ in range(5):
+            self.send_command("M42 P58 S200 \n")
+            self.send_command("M42 P58 S0 \n")
 
     def query_endstops(self):
         """
@@ -48,8 +66,7 @@ class GCodeControl:
         with self.lock:
             self.serial.write("M119 \n".encode('utf-8'))
         time.sleep(0.1)
-        # Feltételezzük, hogy a pySerial read_all() visszaolvassa a választ
-        response = self.serial.read_all().decode('utf-8')
+        response = self.serial.read_all().decode('utf-8', errors='ignore')
         return response
 
 # Teszt futtatás:

@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QComboBox, QLineEdit,
     QPushButton, QHBoxLayout, QMessageBox
 )
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtSignal, Qt, QSettings
 
 
 # Példa dummy osztályok – helyettesítsd saját implementációddal!
@@ -41,6 +41,9 @@ class SettingsWidget(QWidget):
         self.available_cams = []
         self.selected_port = None
         self.initUI()
+        self.settings = QSettings("MyCompany", "MyApp")
+        self.cameraSelected.connect(self.save_camera_to_settings)
+        self.valueChanged.connect(self.save_text_to_settings)
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -57,8 +60,7 @@ class SettingsWidget(QWidget):
         self.input_value.setPlaceholderText("Pl. új érték")
         layout.addWidget(self.input_value)
 
-        self.btn_apply = QPushButton("Alkalmaz")
-        layout.addWidget(self.btn_apply)
+
 
         # USB rész
         layout.addWidget(QLabel("Connect to device:"))
@@ -73,12 +75,17 @@ class SettingsWidget(QWidget):
         btn_layout.addWidget(self.btn_connect)
         layout.addLayout(btn_layout)
 
+
         # Státusz kijelző
         self.label_status = QLabel("")
         self.label_status.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.label_status)
 
         self.setLayout(layout)
+
+        self.btn_apply = QPushButton("Alkalmaz")
+        layout.addWidget(self.btn_apply)
+
 
         # Kapcsolások
         self.combo_cameras.currentIndexChanged.connect(self.emit_camera_selected)
@@ -103,12 +110,15 @@ class SettingsWidget(QWidget):
         camera_index = self.combo_cameras.itemData(index)
         if camera_index != -1:
             self.cameraSelected.emit(camera_index)
+            self.settings.setValue("selected_camera", camera_index)
+            print(f"Kamera index {camera_index} mentve a regiszterbe.")
 
     def emit_value_changed(self):
         value = self.input_value.text()
-        if value:
-            self.valueChanged.emit(value)
-            self.input_value.clear()
+        self.settings.setValue("saved_text", value)  # mentés minden esetben
+        self.valueChanged.emit(value)
+        print(f"Szöveg '{value}' mentve a regiszterbe.")
+        self.input_value.clear()
 
     def autoconnect(self):
         baud_rates = [250000, 125000, 500000]  # sorrendben próbáljuk
@@ -181,3 +191,11 @@ class SettingsWidget(QWidget):
             self.label_status.setText(f"Sikeres csatlakozás: {port_name}")
         except Exception as e:
             self.label_status.setText(f"Hiba: {str(e)}")
+
+    def save_camera_to_settings(self, camera_index):
+        self.settings.setValue("selected_camera_from_signal", camera_index)
+        print(f"Kamera {camera_index} regiszterbe mentve (signal-ból)!")
+
+    def save_text_to_settings(self, text):
+        self.settings.setValue("text_from_signal", text)
+        print(f"Szöveg '{text}' regiszterbe mentve (signal-ból)!")

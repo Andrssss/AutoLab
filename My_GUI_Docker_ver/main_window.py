@@ -1,12 +1,13 @@
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDockWidget, QAction
 from PyQt5.QtCore import Qt, QTimer
 
-from custom_widgets.camera_widget import CameraWidget
-from custom_widgets.log_widget import LogWidget
-from custom_widgets.control_widget import ControlWidget
-from camera_dock import CameraDock
-from custom_widgets.settings_widget import SettingsWidget
-from custom_widgets.manual_control_widget import ManualControlWidget
+from .custom_widgets.camera_widget import CameraWidget  # "." kell, hogy relatív legyen a címzés, ne kérdezd, ez csak úgy kell.
+from .custom_widgets.log_widget import LogWidget
+from .custom_widgets.control_widget import ControlWidget
+from .camera_dock import CameraDock
+from .custom_widgets.device_settings_widget import SettingsWidget
+from .custom_widgets.manual_control_widget import ManualControlWidget
+from .custom_widgets.marlin_config_window import MarlinConfigWindow  # Importálás a külön fájlból
 
 
 class MainWindow(QMainWindow):
@@ -24,14 +25,25 @@ class MainWindow(QMainWindow):
         self._init_widgets()
         self._connect_signals()
 
+    def open_marlin_config(self):
+        self.marlin_config_window = MarlinConfigWindow()
+        self.marlin_config_window.show()
+
     def _init_menu(self):
         menubar = self.menuBar()
 
         # Setting fül
         settings_menu = menubar.addMenu("Settings")
-        open_settings_action = QAction("Megnyitás", self)
+
+        # Devices opció
+        open_settings_action = QAction("Devices", self)
         open_settings_action.triggered.connect(self.open_settings_dock)
         settings_menu.addAction(open_settings_action)
+
+        # Marlin config opció
+        marlin_config_action = QAction("Marlin config", self)
+        marlin_config_action.triggered.connect(self.open_marlin_config)
+        settings_menu.addAction(marlin_config_action)
 
         # Manual Calibration
         manual_menu = menubar.addMenu("Calibration")
@@ -39,9 +51,25 @@ class MainWindow(QMainWindow):
         manual_action.triggered.connect(self.open_manual_control_dock)
         manual_menu.addAction(manual_action)
 
-        menubar.addMenu("File")
-        menubar.addMenu("Edit")
-        menubar.addMenu("Help")
+        # Open fül a dokk ablakok újranyitására
+        open_menu = menubar.addMenu("Open")
+
+        # Logs újranyitása
+        open_logs_action = QAction("Logs", self)
+        open_logs_action.triggered.connect(lambda: self.log_dock.show())
+        open_menu.addAction(open_logs_action)
+
+        # Camera újranyitása
+        open_camera_action = QAction("Camera", self)
+        open_camera_action.triggered.connect(lambda: self.camera_dock.show())
+        open_menu.addAction(open_camera_action)
+
+        # Controls újranyitása
+        open_controls_action = QAction("Controls", self)
+        open_controls_action.triggered.connect(lambda: self.control_dock.show())
+        open_menu.addAction(open_controls_action)
+
+
 
     def _init_widgets(self):
         central_widget = QWidget()
