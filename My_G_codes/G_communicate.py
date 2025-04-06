@@ -1,7 +1,7 @@
 import time
 
 class GCodeControl:
-    def __init__(self, serial_obj, lock):
+    def __init__(self, serial_obj=None, lock=None):
         self.serial = serial_obj
         self.lock = lock
 

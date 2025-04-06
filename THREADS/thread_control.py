@@ -9,7 +9,7 @@ lock_map = {
 }
 
 class ThreadControl:
-    def __init__(self, gcode_control, lock_type):
+    def __init__(self,  gcode_control=None, lock_type="common"):
         """
         gcode_control: egy GCodeControl objektum
         lock_type: string, amely meghatározza a lock típusát (pl. "G-code_lock")
@@ -17,9 +17,9 @@ class ThreadControl:
         if lock_type not in lock_map:
             raise ValueError(f"Ismeretlen lock típus: {lock_type}")
 
-        self.lock = lock_map[lock_type]  # A megfelelő lock kiválasztása
-        self.gcode_control = gcode_control
-        self.gcode_control.set_lock(self.lock)  # A lock továbbadása az objektumnak
+        #self.lock = lock_map[lock_type]  # A megfelelő lock kiválasztása
+        #self.gcode_control = gcode_control
+        #self.gcode_control.set_lock(self.lock)  # A lock továbbadása az objektumnak
 
     def start_threads(self):
         """Elindítja a motorvezérlési parancsokhoz tartozó szálakat."""

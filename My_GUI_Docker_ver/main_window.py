@@ -1,3 +1,5 @@
+import sys
+
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDockWidget, QAction
 from PyQt5.QtCore import Qt, QTimer
 
@@ -11,8 +13,11 @@ from .custom_widgets.marlin_config_window import MarlinConfigWindow  # Importál
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, g_control, thread_control):
         super().__init__()
+        self.g_control = g_control
+        self.thread_control = thread_control
+
         self.setWindowTitle("Main Window with Menu Bar")
         self.setGeometry(100, 100, 1200, 600)
 
@@ -112,20 +117,13 @@ class MainWindow(QMainWindow):
             self.log_widget.append_log("Camera panel bezárva, kamera leállítva.")
 
     def open_settings_dock(self):
-        self.settings_widget = SettingsWidget()
+        self.settings_widget = SettingsWidget(self.g_control, self.thread_control)
         self.settings_dock = QDockWidget("Settings", self)
         self.settings_dock.setWidget(self.settings_widget)
-
-        # Beállítjuk, hogy ne dokkolódjon automatikusan, hanem lebegő legyen
         self.settings_dock.setFloating(True)
         self.settings_dock.resize(300, 400)
         self.settings_dock.show()
 
-        # Kamera kiválasztása - küldi tovább a camera_widget-nek
-        self.settings_widget.cameraSelected.connect(self.set_camera_from_settings)
-
-        # Értékváltoztatás - logba ír és beállítja
-        self.settings_widget.valueChanged.connect(self.update_custom_value)
 
     def set_camera_from_settings(self, index):
         self.camera_widget.combo_cameras.setCurrentIndex(
