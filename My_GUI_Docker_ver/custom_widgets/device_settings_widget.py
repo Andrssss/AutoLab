@@ -7,18 +7,16 @@ import os
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QComboBox, QLineEdit,
-    QPushButton, QHBoxLayout, QMessageBox
+    QPushButton, QHBoxLayout, QMessageBox, QMenu, QAction
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
-
-
+from THREADS.thread_control import LockRegistry
 
 
 # 🔄 Kameraellenőrző külön szálon
 class CameraScanThread(QThread):
     camerasFound = pyqtSignal(list)
-
     def __init__(self, max_index=5):
         super().__init__()
         self.max_index = max_index
@@ -37,14 +35,15 @@ class CameraScanThread(QThread):
 
 
 class SettingsWidget(QWidget):
-    def __init__(self, g_control, thread_control, parent=None):
+    def __init__(self, g_control, locks, parent=None):
         super().__init__(parent)
         self.g_control = g_control
-        self.thread_control = thread_control
+        #self.locks = locks
         self.available_cams = []
         self.selected_port = None
         self.initUI()
         self.populate_camera_list_async()
+        cameraChanged = pyqtSignal(int)  # <- ez a signal fog szólni, ha kamera váltás történik
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -64,7 +63,10 @@ class SettingsWidget(QWidget):
         layout.addWidget(QLabel("Connect to device:"))
         btn_layout = QHBoxLayout()
         self.btn_autoconnect = QPushButton("Autoconnect")
+
         self.btn_select = QPushButton("Select")
+        self.btn_select.setMenu(QMenu())  # Menü hozzáadása a gombhoz
+
         self.btn_connect = QPushButton("Connect")
         btn_layout.addWidget(self.btn_autoconnect)
         btn_layout.addWidget(self.btn_select)
@@ -84,8 +86,27 @@ class SettingsWidget(QWidget):
         # Kapcsolások
         self.btn_apply.clicked.connect(self.emit_value_changed)
         self.btn_autoconnect.clicked.connect(self.autoconnect)
-        self.btn_select.clicked.connect(self.show_port_list)
         self.btn_connect.clicked.connect(self.connect_selected_port)
+
+        # Újratölti a portokat, amikor megnyitják a menüt
+        self.btn_select.menu().aboutToShow.connect(self.populate_port_menu)
+
+    def populate_port_menu(self):
+        self.btn_select.menu().clear()
+        ports = serial.tools.list_ports.comports()
+
+        if not ports:
+            no_ports_action = QAction("No ports", self)
+            no_ports_action.setEnabled(False)
+            self.btn_select.menu().addAction(no_ports_action)
+            self.selected_port = None
+            self.label_status.setText("Port kiválasztása: nincs elérhető")
+            return
+
+        for port in ports:
+            action = QAction(f"{port.device} - {port.description}", self)
+            action.triggered.connect(lambda checked, p=port.device: self.set_selected_port(p))
+            self.btn_select.menu().addAction(action)
 
     # 🚀 Kamera detektálás külön szálon
     def populate_camera_list_async(self):
@@ -95,6 +116,10 @@ class SettingsWidget(QWidget):
         self.cam_thread = CameraScanThread()  # vagy CameraScanThread(max_index=10)
         self.cam_thread.camerasFound.connect(self.on_cameras_scanned)
         self.cam_thread.start()
+
+    def set_selected_port(self, port_name):
+        self.selected_port = port_name
+        self.label_status.setText(f"Kiválasztott port: {self.selected_port}")
 
     def on_cameras_scanned(self, cameras):
         self.combo_cameras.clear()
@@ -140,9 +165,12 @@ class SettingsWidget(QWidget):
                     if response:
                         # Meglévő példányokkal dolgozunk:
                         self.g_control.ser = ser
-                        self.thread_control.gc = self.g_control
-                        self.thread_control.lock_type = "G-code_lock"
-                        self.thread_control.start_threads()
+                        #self.locks.gc = self.g_control
+                        #self.locks.lock_type = "G-code_lock"
+                       # self.locks.start_threads()
+                        lock = LockRegistry.get("G-code_lock")
+                        self.g_control.set_lock(lock)
+                        self.g_control.start_threads()
 
                         self.label_status.setText(
                             f"Sikeres csatlakozás: {port_name} @ {baud} baud"
@@ -186,9 +214,12 @@ class SettingsWidget(QWidget):
             self.g_control.ser = ser
 
             # Elindítjuk a szálakat a meglévő thread_control-ból
-            self.thread_control.gc = self.g_control
-            self.thread_control.lock_type = "G-code_lock"
-            self.thread_control.start_threads()
+            #self.locks.gc = self.g_control
+            #self.locks.lock_type = "G-code_lock"
+            #self.locks.start_threads()
+            lock = LockRegistry.get("G-code_lock")
+            self.g_control.set_lock(lock)
+            self.g_control.start_threads()
 
             self.label_status.setText(f"Sikeres csatlakozás: {port_name}")
 

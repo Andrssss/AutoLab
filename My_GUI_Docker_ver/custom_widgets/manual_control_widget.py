@@ -1,17 +1,27 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, QTimer
 
 
 class ManualControlWidget(QWidget):
     moveCommand = pyqtSignal(str)
     actionCommand = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self,g_control, parent=None):
         super().__init__(parent)
         self.initUI()
+        self.stopped = False  # ⛔ Stop állapot
+        self.g_control = g_control
 
     def initUI(self):
         layout = QVBoxLayout()
+
+        # Mozgatási időzítők
+        self.timers = {
+            "up": QTimer(self),
+            "down": QTimer(self),
+            "left": QTimer(self),
+            "right": QTimer(self),
+        }
 
         # Iránygombok
         dir_layout = QVBoxLayout()
@@ -20,10 +30,23 @@ class ManualControlWidget(QWidget):
         left = QPushButton("←")
         right = QPushButton("→")
 
-        up.clicked.connect(lambda: self.moveCommand.emit("up"))
-        down.clicked.connect(lambda: self.moveCommand.emit("down"))
-        left.clicked.connect(lambda: self.moveCommand.emit("left"))
-        right.clicked.connect(lambda: self.moveCommand.emit("right"))
+        self.timers["up"].timeout.connect(lambda: self.send_move_command("up"))
+        self.timers["down"].timeout.connect(lambda: self.send_move_command("down"))
+        self.timers["left"].timeout.connect(lambda: self.send_move_command("left"))
+        self.timers["right"].timeout.connect(lambda: self.send_move_command("right"))
+
+
+        for timer in self.timers.values():
+            timer.setInterval(100)  # 100ms-onta mozgat
+
+        up.pressed.connect(self.timers["up"].start)
+        up.released.connect(self.timers["up"].stop)
+        down.pressed.connect(self.timers["down"].start)
+        down.released.connect(self.timers["down"].stop)
+        left.pressed.connect(self.timers["left"].start)
+        left.released.connect(self.timers["left"].stop)
+        right.pressed.connect(self.timers["right"].start)
+        right.released.connect(self.timers["right"].stop)
 
         arrow_grid = QVBoxLayout()
         arrow_row_top = QHBoxLayout()
@@ -45,7 +68,6 @@ class ManualControlWidget(QWidget):
         arrow_grid.addLayout(arrow_row_top)
         arrow_grid.addLayout(arrow_row_mid)
         arrow_grid.addLayout(arrow_row_bot)
-
         layout.addLayout(arrow_grid)
 
         # IN/OUT gombok
@@ -67,8 +89,10 @@ class ManualControlWidget(QWidget):
         bottom_layout.addWidget(btn_start)
         bottom_layout.addWidget(btn_stop)
 
-        btn_start.clicked.connect(lambda: self.actionCommand.emit("start"))
-        btn_stop.clicked.connect(lambda: self.actionCommand.emit("stop"))
+        btn_start.clicked.connect(self.on_start)
+        btn_stop.clicked.connect(self.on_stop)
+        # btn_start.clicked.connect(lambda: self.actionCommand.emit("start"))
+        # btn_stop.clicked.connect(lambda: self.actionCommand.emit("stop"))
         layout.addLayout(bottom_layout)
 
 
@@ -78,3 +102,30 @@ class ManualControlWidget(QWidget):
         layout.addWidget(btn_save)
 
         self.setLayout(layout)
+
+    def on_start(self):
+        print("[INFO] Start gomb megnyomva")
+        self.stopped = False
+
+    def on_stop(self):
+        print("[INFO] Stop gomb megnyomva")
+        self.stopped = True
+
+
+    def send_move_command(self, direction):
+        if self.stopped:
+            return  # ⛔ ne küldjön semmit
+
+        command = None
+        if direction == "up":
+            command = "G91\nG1 X1 F3000\n"       # X+
+        elif direction == "down":
+            command = "G91\nG1 X-1 F3000\n"      # X-
+        elif direction == "right":
+            command = "G91\nG1 Y1 F3000\n"       # Y+
+        elif direction == "left":
+            command = "G91\nG1 Y-1 F3000\n"      # Y-
+
+        if command:
+            print(f"[GCODE] {command.strip()}")
+            self.g_control.new_command(command, wait_for_completion=False)

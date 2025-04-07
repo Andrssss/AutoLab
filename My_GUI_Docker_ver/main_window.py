@@ -13,10 +13,10 @@ from .custom_widgets.marlin_config_window import MarlinConfigWindow  # Importál
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, g_control, thread_control):
+    def __init__(self, g_control, locks):
         super().__init__()
         self.g_control = g_control
-        self.thread_control = thread_control
+        self.locks = locks
 
         self.setWindowTitle("Main Window with Menu Bar")
         self.setGeometry(100, 100, 1200, 600)
@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
             self.log_widget.append_log("Camera panel bezárva, kamera leállítva.")
 
     def open_settings_dock(self):
-        self.settings_widget = SettingsWidget(self.g_control, self.thread_control)
+        self.settings_widget = SettingsWidget(self.g_control, self.locks)
         self.settings_dock = QDockWidget("Settings", self)
         self.settings_dock.setWidget(self.settings_widget)
         self.settings_dock.setFloating(True)
@@ -141,7 +141,7 @@ class MainWindow(QMainWindow):
             self.log_widget.append_log("Settings panel bezárva (alkalmazás után).")
 
     def open_manual_control_dock(self):
-        self.manual_widget = ManualControlWidget()
+        self.manual_widget = ManualControlWidget(self.g_control)
         self.manual_dock = QDockWidget("Manual Control", self)
         self.manual_dock.setWidget(self.manual_widget)
         # Jelek logolása

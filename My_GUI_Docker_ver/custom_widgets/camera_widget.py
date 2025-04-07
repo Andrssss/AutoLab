@@ -4,6 +4,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
+import yaml
 
 
 class CameraWidget(QWidget):
@@ -20,6 +21,7 @@ class CameraWidget(QWidget):
         self.camera_index = None
         self.available_cams = []
         self.initUI()
+
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -72,7 +74,8 @@ class CameraWidget(QWidget):
             self.combo_cameras.addItem(f"Camera {index}", index)
         if self.available_cams:
             self.combo_cameras.setCurrentIndex(0)
-            self.on_play()  # Azonnal indítja is
+            self.load_camera_index_from_yaml()  # Itt töltjük be yaml-ból
+            self.on_play() # azonnal indítás
 
     def set_camera(self, index):
         self.camera_index = index
@@ -152,3 +155,23 @@ class CameraWidget(QWidget):
                 self.timer.start(30)
                 print(f"Camera {self.camera_index} elindítva.")
                 self.playPressed.emit()  # Log jele
+
+    def load_camera_index_from_yaml(self, filepath="settings.yaml"):
+        if not os.path.exists(filepath):
+            print("settings.yaml nem található.")
+            return
+
+        try:
+            with open(filepath, "r") as f:
+                data = yaml.safe_load(f)
+            index_from_yaml = data.get("camera_index", None)
+
+            if index_from_yaml in self.available_cams:
+                idx = self.combo_cameras.findData(index_from_yaml)
+                if idx != -1:
+                    self.combo_cameras.setCurrentIndex(idx)
+                    print(f"Kamera index beállítva YAML alapján: {index_from_yaml}")
+            else:
+                print(f"A beolvasott kamera index ({index_from_yaml}) nem elérhető.")
+        except Exception as e:
+            print(f"Hiba a settings.yaml olvasásakor: {e}")
