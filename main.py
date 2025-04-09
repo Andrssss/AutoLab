@@ -9,7 +9,11 @@ if __name__ == "__main__":
 
     # Ezekből csak 1-1 példány lesz, ezért itt hozom létre, hogy bárkinek oda tudjam innen adni.
     locks = LockRegistry()
-    g_control = GCodeControl(locks)
+    lock = LockRegistry.get("G-code_lock")
+
+
+    g_control = GCodeControl()
+    g_control.start_threads()
 
 
     # Főablak létrehozás és indítás

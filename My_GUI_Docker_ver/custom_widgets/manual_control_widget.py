@@ -1,6 +1,8 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
 from PyQt5.QtCore import pyqtSignal, QTimer
 
+from My_GUI_Docker_ver.custom_widgets.CommandSender import CommandSender
+
 
 class ManualControlWidget(QWidget):
     moveCommand = pyqtSignal(str)
@@ -11,6 +13,8 @@ class ManualControlWidget(QWidget):
         self.initUI()
         self.stopped = False  # ⛔ Stop állapot
         self.g_control = g_control
+        self.command_sender = CommandSender(self.g_control)
+        self.command_sender.start()
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -37,7 +41,7 @@ class ManualControlWidget(QWidget):
 
 
         for timer in self.timers.values():
-            timer.setInterval(100)  # 100ms-onta mozgat
+            timer.setInterval(250)  # 100ms-onta mozgat
 
         up.pressed.connect(self.timers["up"].start)
         up.released.connect(self.timers["up"].stop)
@@ -128,4 +132,14 @@ class ManualControlWidget(QWidget):
 
         if command:
             print(f"[GCODE] {command.strip()}")
-            self.g_control.new_command(command, wait_for_completion=False)
+            self.command_sender.sendCommand.emit(command)
+
+    def closeEvent(self, event):
+        print("🧹 ManualControlWidget.closeEvent() meghívva!")
+        if self.command_sender.isRunning():
+            self.command_sender.running = False
+            self.command_sender.quit()
+            self.command_sender.wait()
+        event.accept()
+
+

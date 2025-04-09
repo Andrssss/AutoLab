@@ -1,7 +1,7 @@
 import sys
 import serial
 from My_G_codes.G_not_used import GCodeControl
-from THREADS.thread_control import ThreadControl
+from THREADS.thread_control import LockRegistry
 
 def main():
     if sys.platform.startswith('win'):
@@ -29,7 +29,7 @@ def main():
     # "Camera_lock": Lock(),
     # "common":      Lock()
     lock_type = "G-code_lock"  # Változtathatod pl. "Camera_lock" vagy "common"-ra
-    thread_ctrl = ThreadControl(gcode_control, lock_type)
+    thread_ctrl = LockRegistry(gcode_control, lock_type)
     thread_ctrl.start_threads()
 
 

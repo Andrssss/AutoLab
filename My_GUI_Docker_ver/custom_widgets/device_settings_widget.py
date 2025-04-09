@@ -10,8 +10,8 @@ from PyQt5.QtWidgets import (
     QPushButton, QHBoxLayout, QMessageBox, QMenu, QAction
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-
 from THREADS.thread_control import LockRegistry
+from file_managers import config_manager
 
 
 # 🔄 Kameraellenőrző külön szálon
@@ -35,10 +35,11 @@ class CameraScanThread(QThread):
 
 
 class SettingsWidget(QWidget):
-    def __init__(self, g_control, locks, parent=None):
+    def __init__(self, g_control, locks, camera_widget, parent=None):
         super().__init__(parent)
         self.g_control = g_control
         #self.locks = locks
+        self.camera_widget = camera_widget
         self.available_cams = []
         self.selected_port = None
         self.initUI()
@@ -140,6 +141,7 @@ class SettingsWidget(QWidget):
 
         # Szál leállítása, ha fut
         if hasattr(self, "cam_thread") and self.cam_thread.isRunning():
+            print("cam_thread thread close")
             self.cam_thread.quit()
             self.cam_thread.wait()
 
@@ -168,13 +170,11 @@ class SettingsWidget(QWidget):
                         #self.locks.gc = self.g_control
                         #self.locks.lock_type = "G-code_lock"
                        # self.locks.start_threads()
-                        lock = LockRegistry.get("G-code_lock")
-                        self.g_control.set_lock(lock)
-                        self.g_control.start_threads()
 
                         self.label_status.setText(
                             f"Sikeres csatlakozás: {port_name} @ {baud} baud"
                         )
+                        self.g_control.set_connected(True)
                         return
                     else:
                         ser.close()
@@ -203,6 +203,7 @@ class SettingsWidget(QWidget):
         if not self.selected_port:
             self.label_status.setText("Nincs kiválasztott port!")
             return
+        self.g_control.set_connected(True)
         self.connect_to_port(self.selected_port)
 
     def connect_to_port(self, port_name):
@@ -217,28 +218,20 @@ class SettingsWidget(QWidget):
             #self.locks.gc = self.g_control
             #self.locks.lock_type = "G-code_lock"
             #self.locks.start_threads()
-            lock = LockRegistry.get("G-code_lock")
-            self.g_control.set_lock(lock)
-            self.g_control.start_threads()
-
+            self.g_control.set_connected(True)
             self.label_status.setText(f"Sikeres csatlakozás: {port_name}")
 
         except Exception as e:
             self.label_status.setText(f"Hiba: {str(e)}")
 
     def save_all_to_yaml(self, filepath="settings.yaml"):
-        data = {
+        config_manager.update_settings({
             "camera_index": self.combo_cameras.currentData(),
             "selected_port": self.selected_port,
             "text_value": self.input_value.text()
-        }
+        })
+        self.camera_widget.select_camera_by_index(self.combo_cameras.currentData())
 
-        try:
-            with open(filepath, "w") as file:
-                yaml.dump(data, file)
-            print(f"Beállítások YAML-be mentve: {data}")
-        except Exception as e:
-            print(f"Hiba a YAML mentés során: {e}")
 
 
 
@@ -271,3 +264,15 @@ class SettingsWidget(QWidget):
 
         except Exception as e:
             print(f"Hiba a YAML betöltés során: {e}")
+
+
+
+    def closeEvent(self, event):
+        # Ha az ablakot "X"-szel zárják be, itt NEM mentünk semmit.
+        print("Beállítások ablak bezárva felhasználó által (X), mentés kihagyva.")
+        if hasattr(self, "cam_thread") and self.cam_thread.isRunning():
+            print("cam_thread thread close")
+            self.cam_thread.quit()
+            self.cam_thread.wait()
+
+        event.accept()  # Engedélyezzük a bezárást

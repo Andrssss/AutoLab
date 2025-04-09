@@ -10,6 +10,8 @@ class CameraScanThread(QThread):
 
     def run(self):
         found = []
+        print("rosszat hívtál meg")
+        """
         for i in range(self.max_index):
             try:
                 cap = cv2.VideoCapture(i)
@@ -18,4 +20,4 @@ class CameraScanThread(QThread):
                     cap.release()
             except Exception as e:
                 print(f"Kamera {i} hibás: {e}")
-        self.camerasFound.emit(found)
+        """

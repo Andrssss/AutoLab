@@ -1,4 +1,3 @@
-# camera_widget.py
 import cv2, os
 from datetime import datetime
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton
@@ -56,16 +55,19 @@ class CameraWidget(QWidget):
         self.populate_camera_list()
 
     def detect_cameras(self):
-        available = []
-        # Próbáljunk 5 lehetséges kameraindexet
-        for i in range(5):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                ret, _ = cap.read()
-                if ret:
-                    available.append(i)
-                cap.release()
-        return available
+        if not self.available_cams:  # Ha üres a lista, akkor feltöltjük
+            available = []
+            # Próbáljunk 5 lehetséges kameraindexet
+            for i in range(5):
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        available.append(i)
+                    cap.release()
+            return available
+        else:
+            return self.available_cams
 
     def populate_camera_list(self):
         self.available_cams = self.detect_cameras()
@@ -175,3 +177,26 @@ class CameraWidget(QWidget):
                 print(f"A beolvasott kamera index ({index_from_yaml}) nem elérhető.")
         except Exception as e:
             print(f"Hiba a settings.yaml olvasásakor: {e}")
+
+    def select_camera_by_index(self, index):
+        # Ha már ez az aktív kamera, semmit ne csináljunk
+        if index == self.camera_index:
+            print(f"Kamera {index} már aktív, nincs váltás.")
+            return False
+
+        idx = self.combo_cameras.findData(index)
+        if idx != -1:
+            was_running = self.timer.isActive()
+
+            if was_running and self.combo_cameras.setCurrentIndex(idx)!=index:
+                self.on_stop()
+                print(f"Camera {self.camera_index} leállítva külső váltás miatt.")
+                self.stopPressed.emit()
+
+            self.combo_cameras.setCurrentIndex(idx)  # Ez kiváltja a váltást
+            self.on_play()
+            self.playPressed.emit()
+            return True
+        else:
+            print(f"Camera index {index} nem található a listában.")
+            return False

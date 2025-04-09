@@ -3,6 +3,7 @@ import sys
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDockWidget, QAction
 from PyQt5.QtCore import Qt, QTimer
 
+from file_managers import config_manager
 from .custom_widgets.camera_widget import CameraWidget  # "." kell, hogy relatív legyen a címzés, ne kérdezd, ez csak úgy kell.
 from .custom_widgets.log_widget import LogWidget
 from .custom_widgets.control_widget import ControlWidget
@@ -29,10 +30,6 @@ class MainWindow(QMainWindow):
         self._init_menu()
         self._init_widgets()
         self._connect_signals()
-
-    def open_marlin_config(self):
-        self.marlin_config_window = MarlinConfigWindow()
-        self.marlin_config_window.show()
 
     def _init_menu(self):
         menubar = self.menuBar()
@@ -116,15 +113,51 @@ class MainWindow(QMainWindow):
             self.camera_widget.on_stop()
             self.log_widget.append_log("Camera panel bezárva, kamera leállítva.")
 
+
+
+    """
+        -------- OPEN ELEMENTS -----------
+    """
     def open_settings_dock(self):
-        self.settings_widget = SettingsWidget(self.g_control, self.locks)
+        self.settings_widget = SettingsWidget(self.g_control, self.locks, self.camera_widget) #
         self.settings_dock = QDockWidget("Settings", self)
         self.settings_dock.setWidget(self.settings_widget)
         self.settings_dock.setFloating(True)
+        self.settings_dock.closeEvent = self.settings_close_event
         self.settings_dock.resize(300, 400)
         self.settings_dock.show()
 
+    def settings_close_event(self, event):
+        print("📦 Dock closeEvent override → meghívjuk a widget bezárását")
+        self.settings_widget.close()  # <-- automatikusan triggereli a closeEvent()-et
+        event.accept()
 
+    def open_marlin_config(self):
+        self.marlin_config_window = MarlinConfigWindow()
+        self.marlin_config_window.show()
+
+
+    def open_manual_control_dock(self):
+        self.manual_widget = ManualControlWidget(self.g_control)
+        self.manual_dock = QDockWidget("Manual Control", self)
+        self.manual_dock.setWidget(self.manual_widget)
+
+        # 💡 Fontos: a widget automatikusan törlődjön bezáráskor
+        self.manual_dock.setAttribute(Qt.WA_DeleteOnClose)
+        self.manual_dock.closeEvent = self.manual_close_event
+
+        # Ne tartsunk meg külső referenciát
+        self.manual_dock.setFloating(True)
+        self.manual_dock.resize(200, 350)
+        self.manual_dock.show()
+
+    # closeEvent
+    def manual_close_event(self, event):
+        print("📦 Dock closeEvent override → meghívjuk a widget bezárását")
+        self.manual_widget.close()  # <-- automatikusan triggereli a closeEvent()-et
+        event.accept()
+
+    """
     def set_camera_from_settings(self, index):
         self.camera_widget.combo_cameras.setCurrentIndex(
             self.camera_widget.combo_cameras.findData(index)
@@ -139,21 +172,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'settings_dock') and self.settings_dock:
             self.settings_dock.close()
             self.log_widget.append_log("Settings panel bezárva (alkalmazás után).")
-
-    def open_manual_control_dock(self):
-        self.manual_widget = ManualControlWidget(self.g_control)
-        self.manual_dock = QDockWidget("Manual Control", self)
-        self.manual_dock.setWidget(self.manual_widget)
-        # Jelek logolása
-        self.manual_widget.moveCommand.connect(
-            lambda direction: self.log_widget.append_log(f"Manual move: {direction}")
-        )
-        self.manual_widget.actionCommand.connect(self.handle_manual_action)
-        # Close esemény logolása
-        self.manual_dock.closeEvent = self.manual_close_event
-        self.manual_dock.setFloating(True)
-        self.manual_dock.resize(200, 350)
-        self.manual_dock.show()
+    """
 
     def handle_manual_action(self, action):
         if action == "save":
@@ -167,6 +186,7 @@ class MainWindow(QMainWindow):
         else:
             self.log_widget.append_log(f"Manual action: {action}")
 
-    def manual_close_event(self, event):
-        self.log_widget.append_log("Manual control panel bezárva (closeEvent)")
-        QDockWidget.closeEvent(self.manual_dock, event)
+
+
+
+
