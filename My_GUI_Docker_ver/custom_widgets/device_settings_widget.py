@@ -10,40 +10,22 @@ from PyQt5.QtWidgets import (
     QPushButton, QHBoxLayout, QMessageBox, QMenu, QAction
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from THREADS.thread_control import LockRegistry
 from file_managers import config_manager
 
 
-# 🔄 Kameraellenőrző külön szálon
-class CameraScanThread(QThread):
-    camerasFound = pyqtSignal(list)
-    def __init__(self, max_index=5):
-        super().__init__()
-        self.max_index = max_index
 
-    def run(self):
-        found = []
-        for i in range(self.max_index):
-            try:
-                cap = cv2.VideoCapture(i)
-                if cap is not None and cap.isOpened():
-                    found.append(i)
-                    cap.release()
-            except Exception as e:
-                print(f"Kamera {i} hibás: {e}")
-        self.camerasFound.emit(found)
 
 
 class SettingsWidget(QWidget):
-    def __init__(self, g_control, locks, camera_widget, parent=None):
+    def __init__(self, g_control, locks, camera_widget,available_cams, parent=None):
         super().__init__(parent)
         self.g_control = g_control
         #self.locks = locks
         self.camera_widget = camera_widget
-        self.available_cams = []
         self.selected_port = None
         self.initUI()
-        self.populate_camera_list_async()
+        self.populate_camera_list()
+        self.available_cams = available_cams
         cameraChanged = pyqtSignal(int)  # <- ez a signal fog szólni, ha kamera váltás történik
 
     def initUI(self):
@@ -110,13 +92,23 @@ class SettingsWidget(QWidget):
             self.btn_select.menu().addAction(action)
 
     # 🚀 Kamera detektálás külön szálon
-    def populate_camera_list_async(self):
+    def populate_camera_list(self):
         self.combo_cameras.clear()
         self.combo_cameras.addItem("Kamerák keresése...", -1)
 
-        self.cam_thread = CameraScanThread()  # vagy CameraScanThread(max_index=10)
-        self.cam_thread.camerasFound.connect(self.on_cameras_scanned)
-        self.cam_thread.start()
+        found = []
+        for i in range(5):  # Vagy amennyi indexet akarsz próbálni
+            try:
+                cap = cv2.VideoCapture(i)
+                if cap is not None and cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        found.append(i)
+                    cap.release()
+            except Exception as e:
+                print(f"Kamera {i} hibás: {e}")
+
+        self.on_cameras_scanned(found)
 
     def set_selected_port(self, port_name):
         self.selected_port = port_name
@@ -124,6 +116,7 @@ class SettingsWidget(QWidget):
 
     def on_cameras_scanned(self, cameras):
         self.combo_cameras.clear()
+        print(cameras)
         self.available_cams = cameras
         if cameras:
             for cam in cameras:
@@ -138,13 +131,6 @@ class SettingsWidget(QWidget):
     def emit_value_changed(self):
         self.save_all_to_yaml()
         self.input_value.clear()
-
-        # Szál leállítása, ha fut
-        if hasattr(self, "cam_thread") and self.cam_thread.isRunning():
-            print("cam_thread thread close")
-            self.cam_thread.quit()
-            self.cam_thread.wait()
-
         # Ablak bezárása
         self.close()
 
@@ -270,9 +256,4 @@ class SettingsWidget(QWidget):
     def closeEvent(self, event):
         # Ha az ablakot "X"-szel zárják be, itt NEM mentünk semmit.
         print("Beállítások ablak bezárva felhasználó által (X), mentés kihagyva.")
-        if hasattr(self, "cam_thread") and self.cam_thread.isRunning():
-            print("cam_thread thread close")
-            self.cam_thread.quit()
-            self.cam_thread.wait()
-
         event.accept()  # Engedélyezzük a bezárást

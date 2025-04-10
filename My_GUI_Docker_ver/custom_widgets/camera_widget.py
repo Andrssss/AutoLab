@@ -11,14 +11,14 @@ class CameraWidget(QWidget):
     stopPressed = pyqtSignal()
     snapshotPressed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, camera_index=None, available_cams=None, parent=None):
         super().__init__(parent)
         self.cap = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
         self.current_frame = None
-        self.camera_index = None
-        self.available_cams = []
+        self.camera_index = camera_index
+        self.available_cams = available_cams or []  # üres lista, ha nincs átadva
         self.initUI()
 
 
@@ -54,7 +54,7 @@ class CameraWidget(QWidget):
         self.setLayout(layout)
         self.populate_camera_list()
 
-    def detect_cameras(self):
+    def detect_cameras(self): # -----------------------------------------------------TODO
         if not self.available_cams:  # Ha üres a lista, akkor feltöltjük
             available = []
             # Próbáljunk 5 lehetséges kameraindexet

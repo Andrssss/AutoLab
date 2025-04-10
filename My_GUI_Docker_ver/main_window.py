@@ -1,5 +1,6 @@
 import sys
 
+import cv2
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDockWidget, QAction
 from PyQt5.QtCore import Qt, QTimer
 
@@ -30,6 +31,20 @@ class MainWindow(QMainWindow):
         self._init_menu()
         self._init_widgets()
         self._connect_signals()
+
+
+        ## ------------------------------------------------------------------------------
+        ## ------------------------------------------------------------------------------
+        # Ezen még gondolkozok, hogy hogyan lenne optimálisabb.
+        # Mármint hogy csak itt skennelje be az elérhető kamarákat, vagy minden egyes beállítás
+        # nyitásnál nézze meg, hogy hátha azóta új camera. Igazából így most mind2 kb. optimális.
+        # Csak nem szabad neki új szálat indítani, mert az nagyon lassú.
+
+        # self.available_cams = self.detect_cameras()
+        self.available_cams = []
+        ## ------------------------------------------------------------------------------
+        ## ------------------------------------------------------------------------------
+
 
     def _init_menu(self):
         menubar = self.menuBar()
@@ -119,7 +134,8 @@ class MainWindow(QMainWindow):
         -------- OPEN ELEMENTS -----------
     """
     def open_settings_dock(self):
-        self.settings_widget = SettingsWidget(self.g_control, self.locks, self.camera_widget) #
+        print(self.available_cams)
+        self.settings_widget = SettingsWidget(self.g_control, self.locks, self.camera_widget,self.available_cams) #
         self.settings_dock = QDockWidget("Settings", self)
         self.settings_dock.setWidget(self.settings_widget)
         self.settings_dock.setFloating(True)
@@ -185,6 +201,19 @@ class MainWindow(QMainWindow):
                 self.log_widget.append_log("Manual control panel bezárva (mentés után)")
         else:
             self.log_widget.append_log(f"Manual action: {action}")
+
+    def detect_cameras(self):
+            available = []
+            for i in range(5):  # Próbáljunk 5 lehetséges kameraindexet
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        available.append(i)
+
+                    cap.release()
+            available  # Itt állítjuk be
+            return available
 
 
 
