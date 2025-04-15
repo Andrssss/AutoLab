@@ -151,16 +151,19 @@ class SettingsWidget(QWidget):
                     response = ser.readline()
 
                     if response:
-                        # Meglévő példányokkal dolgozunk:
                         self.g_control.ser = ser
-                        #self.locks.gc = self.g_control
-                        #self.locks.lock_type = "G-code_lock"
-                       # self.locks.start_threads()
-
-                        self.label_status.setText(
-                            f"Sikeres csatlakozás: {port_name} @ {baud} baud"
-                        )
                         self.g_control.set_connected(True)
+                        self.selected_port = port_name  # 💾 aktuális port
+                        self.label_status.setText(f"Sikeres csatlakozás: {port_name} @ {baud} baud")
+
+                        # 🔥 Itt történik a MENTÉS:
+                        config_manager.update_settings({
+                            "selected_port": port_name
+                        })
+                        config_manager.update_settings({
+                            "baud": baud
+                        })
+
                         return
                     else:
                         ser.close()

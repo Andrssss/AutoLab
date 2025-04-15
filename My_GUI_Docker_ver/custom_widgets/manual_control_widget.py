@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit
 from PyQt5.QtCore import pyqtSignal, QTimer
 
 from My_GUI_Docker_ver.custom_widgets.CommandSender import CommandSender
@@ -8,17 +8,29 @@ class ManualControlWidget(QWidget):
     moveCommand = pyqtSignal(str)
     actionCommand = pyqtSignal(str)
 
-    def __init__(self,g_control, parent=None):
+    def __init__(self, g_control, parent=None):
         super().__init__(parent)
-        self.initUI()
         self.stopped = False  # ⛔ Stop állapot
         self.g_control = g_control
+
+        self.status_label = QLabel("Checking connection...")  # 💡 Előbb hozzuk létre
+        self.initUI()  # 💡 Csak ezután hívjuk
+
         self.command_sender = CommandSender(self.g_control)
         self.command_sender.start()
 
+        self.check_connection()  # 💡 Megjelenítés frissítése
+
     def initUI(self):
         layout = QVBoxLayout()
+        # 💬 Állapot kijelzés felül
+        status_layout = QHBoxLayout()
+        layout.addWidget(self.status_label)
+        btn_reconnect = QPushButton("Reconnect")
+        btn_reconnect.clicked.connect(self.reconnect)
+        status_layout.addWidget(btn_reconnect)
 
+        layout.addLayout(status_layout)
         # Mozgatási időzítők
         self.timers = {
             "up": QTimer(self),
@@ -105,7 +117,21 @@ class ManualControlWidget(QWidget):
         btn_save.clicked.connect(lambda: self.actionCommand.emit("save"))
         layout.addWidget(btn_save)
 
+        # --- Kézi G-code beírás ---
+        gcode_input_layout = QHBoxLayout()
+        self.gcode_input = QLineEdit()
+        self.gcode_input.setPlaceholderText("G-code parancs pl. G28, M114...")
+        self.btn_send_gcode = QPushButton("Send")
+        self.btn_send_gcode.clicked.connect(self.send_custom_gcode)
+
+        gcode_input_layout.addWidget(self.gcode_input)
+        gcode_input_layout.addWidget(self.btn_send_gcode)
+
+        layout.addLayout(gcode_input_layout)
+
         self.setLayout(layout)
+
+
 
     def on_start(self):
         print("[INFO] Start gomb megnyomva")
@@ -142,4 +168,41 @@ class ManualControlWidget(QWidget):
             self.command_sender.wait()
         event.accept()
 
+    def check_connection(self):
+        ser = getattr(self.g_control, "ser", None)
+        if self.g_control.connected and ser:
+            port = getattr(ser, "port", "ismeretlen port")
+            self.status_label.setText(f"✅ {port} - Connected")
+        else:
+            self.status_label.setText("❌ No connection")
+
+    def reconnect(self):
+        self.try_auto_connect()  # ez hívja self.g_control.connect()
+        self.check_connection()  # ez frissíti self.status_label-et
+
+
+    def try_auto_connect(self):
+        print("[INFO] Trying to connect...")
+        self.g_control.autoconnect()
+
+
+
+    def send_custom_gcode(self):
+        gcode = self.gcode_input.text().strip()
+        if not gcode:
+            return
+
+        if self.g_control.connected:
+            commands = gcode.strip().split("G")  # szétvágja a G-k szerint
+            for cmd in commands:
+                if not cmd.strip():
+                    continue
+                full_cmd = "G" + cmd.strip()  # visszatesszük a 'G'-t
+                if not full_cmd.endswith("\n"):
+                    full_cmd += "\n"
+                print(f"[CUSTOM GCODE → QUEUE] {full_cmd.strip()}")
+                self.command_sender.sendCommand.emit(full_cmd)
+            self.gcode_input.clear()
+        else:
+            print("[HIBA] Gép nincs csatlakoztatva.")
 

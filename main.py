@@ -12,10 +12,13 @@ if __name__ == "__main__":
     locks = LockRegistry()
     lock = LockRegistry.get("G-code_lock")
 
-    g_control = GCodeControl()
+    g_control = GCodeControl(lock)
     g_control.start_threads()
 
     # Főablak létrehozás és indítás
     window = MainWindow(g_control, locks)
     window.show()
+
+    del g_control
     sys.exit(app.exec_())
+

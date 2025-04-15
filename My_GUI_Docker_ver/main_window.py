@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         self.log_dock = QDockWidget("Logs", self)
         self.log_dock.setWidget(self.log_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.log_dock)
+        self.g_control.log_widget = self.log_widget
 
         self.camera_widget = CameraWidget()
         self.camera_dock = CameraDock(self.camera_widget, self.log_widget)
@@ -169,8 +170,9 @@ class MainWindow(QMainWindow):
 
     # closeEvent
     def manual_close_event(self, event):
-        print("📦 Dock closeEvent override → meghívjuk a widget bezárását")
+        print("📦 📦 Dock closeEvent override → meghívjuk a widget bezárását")
         self.manual_widget.close()  # <-- automatikusan triggereli a closeEvent()-et
+
         event.accept()
 
     """
@@ -215,7 +217,11 @@ class MainWindow(QMainWindow):
             available  # Itt állítjuk be
             return available
 
-
+    def closeEvent(self, event):
+        if self.g_control:
+            del self.g_control  # vagy self.g_control.cleanup()
+        print("⬅️ A widget most záródik be")
+        event.accept()
 
 
 
