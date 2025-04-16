@@ -6,12 +6,14 @@ from file_managers import config_manager  # ha még nem volt
 
 
 class CameraSettingsDialog(QDialog):
-    def __init__(self, camera_index, zoom_level, zoom_offset_x, zoom_offset_y,blur_enabled, parent=None):
+    def __init__(self, camera_index, zoom_level, zoom_offset_x, zoom_offset_y, blur_enabled, gain,exposure, parent=None):
         super().__init__(parent)
         self.zoom_level = zoom_level
+        self.gain = gain
         self.zoom_offset_x = zoom_offset_x
         self.zoom_offset_y = zoom_offset_y
         self.blur_enabled = blur_enabled
+        self.exposure = exposure  # amit a paraméterként kapsz vagy .get("exposure", -6.0)
 
         self.setWindowTitle("Kamera Beállítások")
         self.camera_index = camera_index
@@ -38,12 +40,7 @@ class CameraSettingsDialog(QDialog):
         self.btn_focus_up.clicked.connect(self.increase_focus)
         self.btn_focus_down.clicked.connect(self.decrease_focus)
 
-        # Hosszú nyomásra: pressed / released
-        self.btn_focus_up.pressed.connect(lambda: self.zoom_timers["in"].start())
-        self.btn_focus_up.released.connect(lambda: self.zoom_timers["in"].stop())
 
-        self.btn_focus_down.pressed.connect(lambda: self.zoom_timers["out"].start())
-        self.btn_focus_down.released.connect(lambda: self.zoom_timers["out"].stop())
 
 
         # BLUR -------------------------------------------------------------
@@ -107,6 +104,60 @@ class CameraSettingsDialog(QDialog):
         self.zoom_timers["out"].setInterval(100)
         self.zoom_timers["out"].timeout.connect(self.decrease_focus)
 
+        # Hosszú nyomásra: pressed / released
+        self.btn_focus_up.pressed.connect(lambda: self.zoom_timers["in"].start())
+        self.btn_focus_up.released.connect(lambda: self.zoom_timers["in"].stop())
+
+        self.btn_focus_down.pressed.connect(lambda: self.zoom_timers["out"].start())
+        self.btn_focus_down.released.connect(lambda: self.zoom_timers["out"].stop())
+
+        # GAIN gombok
+        self.btn_gain_up = QPushButton("GAIN +")
+        self.btn_gain_down = QPushButton("GAIN -")
+
+        self.gain_timers = {
+            "up": QTimer(self),
+            "down": QTimer(self)
+        }
+        self.gain_timers["up"].setInterval(100)
+        self.gain_timers["up"].timeout.connect(self.increase_gain)
+        self.gain_timers["down"].setInterval(100)
+        self.gain_timers["down"].timeout.connect(self.decrease_gain)
+
+        self.btn_gain_up.pressed.connect(lambda: self.gain_timers["up"].start())
+        self.btn_gain_up.released.connect(lambda: self.gain_timers["up"].stop())
+
+        self.btn_gain_down.pressed.connect(lambda: self.gain_timers["down"].start())
+        self.btn_gain_down.released.connect(lambda: self.gain_timers["down"].stop())
+
+
+        # ======= EXPOSURE beállítás =======
+        self.exposure = self.cap.get(cv2.CAP_PROP_EXPOSURE) or -6.0  # alapérték, ha nincs
+
+        self.btn_expo_up = QPushButton("EXPO +")
+        self.btn_expo_down = QPushButton("EXPO -")
+        self.btn_expo_up.clicked.connect(self.increase_exposure)
+        self.btn_expo_down.clicked.connect(self.decrease_exposure)
+
+        expo_layout = QHBoxLayout()
+        expo_layout.addWidget(self.btn_expo_down)
+        expo_layout.addWidget(self.btn_expo_up)
+        layout.addLayout(expo_layout)
+
+        # ======= GAIN & EXPO kijelzők =======
+        value_layout = QHBoxLayout()
+        self.label_gain = QLabel(f"GAIN: {self.gain:.1f}")
+        self.label_expo = QLabel(f"EXPO: {self.exposure:.1f}")
+        value_layout.addWidget(self.label_gain)
+        value_layout.addWidget(self.label_expo)
+        layout.addLayout(value_layout)
+
+        gain_layout = QHBoxLayout()
+        gain_layout.addWidget(self.btn_gain_down)
+        gain_layout.addWidget(self.btn_gain_up)
+        layout.addLayout(gain_layout)
+
+
         # Elrendezés: ↑ középen, ← → oldalt
         v_pan = QVBoxLayout()
         h_pan = QHBoxLayout()
@@ -123,6 +174,7 @@ class CameraSettingsDialog(QDialog):
 
     def update_frame(self):
         if self.cap and self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
             ret, frame = self.cap.read()
             if ret:
                 self.current_frame = frame
@@ -185,6 +237,36 @@ class CameraSettingsDialog(QDialog):
 
         print(f"[PAN] X: {self.zoom_offset_x:.2f}, Y: {self.zoom_offset_y:.2f}")
 
+    def increase_gain(self):
+        self.gain = min(self.gain + 1.0, 255.0)
+        if self.cap:
+            self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
+        self.label_gain.setText(f"GAIN: {self.gain:.1f}")
+        print(f"[GAIN] Növelve: {self.gain:.1f}")
+
+    def decrease_gain(self):
+        self.gain = max(self.gain - 1.0, -255.0)
+        if self.cap:
+            self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
+        self.label_gain.setText(f"GAIN: {self.gain:.1f}")
+        print(f"[GAIN] Csökkentve: {self.gain:.1f}")
+
+    def increase_exposure(self):
+        self.exposure = min(self.exposure + 1.0, 13.0)  # 0.0 = max expó (gyártófüggő)
+        if self.cap:
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # manuális mód (Windows, UVC)
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
+        print(f"[EXPO] Növelve: {self.exposure:.1f}")
+        self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
+
+    def decrease_exposure(self):
+        self.exposure = max(self.exposure - 1.0, -13.0)  # túl kis értéken fekete lesz
+        if self.cap:
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
+        print(f"[EXPO] Csökkentve: {self.exposure:.1f}")
+        self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
+
     def closeEvent(self, event):
         self.timer.stop()
         if self.cap:
@@ -195,7 +277,9 @@ class CameraSettingsDialog(QDialog):
             "zoom_level": self.zoom_level,
             "offset_x": self.zoom_offset_x,
             "offset_y": self.zoom_offset_y,
-            "blur": self.blur_enabled
+            "blur": self.blur_enabled,
+            "gain": self.gain,
+            "exposure": self.exposure
         }
         config_manager.save_camera_settings(self.camera_index, settings_data)
         self.result = settings_data

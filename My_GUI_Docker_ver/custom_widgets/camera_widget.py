@@ -26,8 +26,15 @@ class CameraWidget(QWidget):
         self.zoom_offset_x = camera_settings.get("offset_x", 0.0)
         self.zoom_offset_y = camera_settings.get("offset_y", 0.0)
         self.blur_enabled = camera_settings.get("blur", False)
+        self.gain = camera_settings.get("gain", 0.0)
+        self.exposure = camera_settings.get("exposure", -6.0)
 
-        self.cap = None
+        self.cap = cv2.VideoCapture(self.camera_index)
+
+        if self.cap and self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
+
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
         self.current_frame = None
@@ -102,30 +109,36 @@ class CameraWidget(QWidget):
             self.load_camera_index_from_yaml()  # Itt töltjük be yaml-ból
             self.on_play() # azonnal indítás
 
+    from file_managers import config_manager
+
     def set_camera(self, index):
         self.camera_index = index
         if self.cap:
             self.cap.release()
         self.cap = cv2.VideoCapture(index)
 
+        # 💡 Itt töltsük be a kamera indexhez tartozó beállításokat
+        camera_settings = config_manager.load_camera_settings(self.camera_index)
+        self.zoom_level = camera_settings.get("zoom_level", 1.0)
+        self.zoom_offset_x = camera_settings.get("offset_x", 0.0)
+        self.zoom_offset_y = camera_settings.get("offset_y", 0.0)
+        self.blur_enabled = camera_settings.get("blur", False)
+        self.gain = camera_settings.get("gain", 0.0)
+        self.exposure = camera_settings.get("exposure", -6.0)
+
+        if self.cap and self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
+
+        print(f"[INFO] Kamera {index} beállításai betöltve.")
+
     def on_camera_change(self, i):
         index = self.combo_cameras.itemData(i)
         if index is not None and index != self.camera_index:
-            self.zoom_level = 1.0
-            self.zoom_offset_x = 0
-            self.zoom_offset_y = 0
-            self.blur_enabled = False
-
             was_running = self.timer.isActive()
             self.on_stop()
-            print(f"Camera {self.camera_index} leállítva.")
-            self.stopPressed.emit()
-
             self.set_camera(index)
-
-            # Mindig indítunk, ha kamera elérhető
-            self.on_play()
-            print(f"Camera {self.camera_index} elindítva.")
+            if was_running:
+                self.on_play()
 
     def on_play(self):
         self.playPressed.emit()
@@ -152,7 +165,7 @@ class CameraWidget(QWidget):
     def open_camera_settings(self):
         if self.camera_index is not None:
             self.pause_camera()
-            dialog = CameraSettingsDialog(self.camera_index,self.zoom_level,self.zoom_offset_x,self.zoom_offset_y,self.blur_enabled, self)
+            dialog = CameraSettingsDialog(self.camera_index,self.zoom_level,self.zoom_offset_x,self.zoom_offset_y,self.blur_enabled,self.gain,self.exposure, self)
             dialog.exec_()
             self.resume_camera()
 
@@ -162,6 +175,8 @@ class CameraWidget(QWidget):
                 self.zoom_offset_x = dialog.result.get("offset_x", 0)
                 self.zoom_offset_y = dialog.result.get("offset_y", 0)
                 self.blur_enabled = dialog.result.get("blur", False)
+                self.gain = dialog.result.get("gain", 0.0)
+                self.exposure = dialog.result.get("exposure", -6.0)
 
                 print("[INFO] Kamera beállítások átvéve:")
                 print(
