@@ -177,8 +177,17 @@ class ManualControlWidget(QWidget):
             self.status_label.setText("❌ No connection")
 
     def reconnect(self):
-        self.try_auto_connect()  # ez hívja self.g_control.connect()
-        self.check_connection()  # ez frissíti self.status_label-et
+        # 🔁 Leállítjuk a meglévő szálat, ha fut
+        if self.command_sender and self.command_sender.isRunning():
+            print("[INFO] Előző CommandSender leállítása...")
+            self.command_sender.stop()
+
+        self.try_auto_connect()
+        self.check_connection()
+
+        # ✅ Új CommandSender indítása
+        self.command_sender = CommandSender(self.g_control)
+        self.command_sender.start()
 
 
     def try_auto_connect(self):
@@ -205,4 +214,16 @@ class ManualControlWidget(QWidget):
             self.gcode_input.clear()
         else:
             print("[HIBA] Gép nincs csatlakoztatva.")
+
+    def closeEvent(self, event):
+        # Ha az ablakot "X"-szel zárják be, itt NEM mentünk semmit.
+        print("Manula control ablak bezárva felhasználó által (X), mentés kihagyva.")
+        try:
+            self.command_sender.stop()
+            print("[INFO] Szálak sikeresen leálltak.")
+        except Exception as e:
+            print(f"[HIBA] Szálak leállítása közben hiba történt: {e}")
+
+        event.accept()  # Engedélyezzük a bezárást
+
 

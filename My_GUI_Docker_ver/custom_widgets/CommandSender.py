@@ -24,3 +24,7 @@ class CommandSender(QThread):
             self.msleep(50)  # kis szünet, hogy ne pörögjön folyamatosan
 
         print("CommandSender close")
+
+    def stop(self):
+        self.running = False
+        self.wait()

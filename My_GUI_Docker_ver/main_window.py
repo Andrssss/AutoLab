@@ -4,7 +4,7 @@ import cv2
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDockWidget, QAction
 from PyQt5.QtCore import Qt, QTimer
 
-from file_managers import config_manager
+from file_managers import config_manager # ne töröld ki, mert ne
 from .custom_widgets.camera_widget import CameraWidget  # "." kell, hogy relatív legyen a címzés, ne kérdezd, ez csak úgy kell.
 from .custom_widgets.log_widget import LogWidget
 from .custom_widgets.control_widget import ControlWidget
@@ -135,7 +135,6 @@ class MainWindow(QMainWindow):
         -------- OPEN ELEMENTS -----------
     """
     def open_settings_dock(self):
-        print(self.available_cams)
         self.settings_widget = SettingsWidget(self.g_control, self.locks, self.camera_widget,self.available_cams) #
         self.settings_dock = QDockWidget("Settings", self)
         self.settings_dock.setWidget(self.settings_widget)
@@ -218,9 +217,15 @@ class MainWindow(QMainWindow):
             return available
 
     def closeEvent(self, event):
-        if self.g_control:
-            del self.g_control  # vagy self.g_control.cleanup()
         print("⬅️ A widget most záródik be")
+
+        if self.g_control:
+            try:
+                print("[INFO] Szálak leállítása MainWindow.closeEvent()-ben...")
+                self.g_control.stop_threads()
+            except Exception as e:
+                print(f"[HIBA] Szálak leállítása sikertelen: {e}")
+
         event.accept()
 
 

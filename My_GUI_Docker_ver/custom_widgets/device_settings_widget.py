@@ -22,6 +22,7 @@ class SettingsWidget(QWidget):
         self.g_control = g_control
         #self.locks = locks
         self.camera_widget = camera_widget
+        self.camera_widget.pause_camera()
         self.selected_port = None
         self.initUI()
         self.populate_camera_list()
@@ -116,7 +117,6 @@ class SettingsWidget(QWidget):
 
     def on_cameras_scanned(self, cameras):
         self.combo_cameras.clear()
-        print(cameras)
         self.available_cams = cameras
         if cameras:
             for cam in cameras:
@@ -155,15 +155,6 @@ class SettingsWidget(QWidget):
                         self.g_control.set_connected(True)
                         self.selected_port = port_name  # 💾 aktuális port
                         self.label_status.setText(f"Sikeres csatlakozás: {port_name} @ {baud} baud")
-
-                        # 🔥 Itt történik a MENTÉS:
-                        config_manager.update_settings({
-                            "selected_port": port_name
-                        })
-                        config_manager.update_settings({
-                            "baud": baud
-                        })
-
                         return
                     else:
                         ser.close()
@@ -259,4 +250,5 @@ class SettingsWidget(QWidget):
     def closeEvent(self, event):
         # Ha az ablakot "X"-szel zárják be, itt NEM mentünk semmit.
         print("Beállítások ablak bezárva felhasználó által (X), mentés kihagyva.")
+        self.camera_widget.resume_camera()
         event.accept()  # Engedélyezzük a bezárást

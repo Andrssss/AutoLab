@@ -113,6 +113,11 @@ class GCodeControl:
     def start_threads(self):
         if (self.connected):
             """Szálak indítása: X_motor, Y_motor, AUX (egyéb funkciók)"""
+            # Ne indíts új szálakat, ha már vannak futók
+            if hasattr(self, 'x_thread') and self.x_thread.is_alive():
+                self.log("[WARN] Szálak már futnak, újraindítás előtt le kell állítani őket.")
+                return
+
             self.x_thread = threading.Thread(target=self.worker_loop, args=(self.x_motor_queue, "X_motor"))
             self.y_thread = threading.Thread(target=self.worker_loop, args=(self.y_motor_queue, "Y_motor"))
             self.aux_thread = threading.Thread(target=self.worker_loop, args=(self.aux_queue, "AUX"))
@@ -201,6 +206,14 @@ class GCodeControl:
 
     def autoconnect(self):
         self.log("[INFO] autoconnect() meghívva")
+
+        # 🔁 Meglévő szálak leállítása, ha futnak
+        if hasattr(self, 'x_thread') and self.x_thread.is_alive():
+            self.log("[INFO] Korábbi szálak leállítása reconnect előtt...")
+            self.stop_threads()
+            # újra engedélyezni kell a running flaget
+            self.running = True
+
 
         # YAML-ból próbálunk először csatlakozni
         try:
