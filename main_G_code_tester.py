@@ -1,38 +1,51 @@
-import sys
 import serial
-from My_G_codes.G_not_used import GCodeControl
-from THREADS.thread_control import LockRegistry
+import time
+import platform
+
+# ========== KONFIG ==========
+PORT = 'COM6' if platform.system() == 'Windows' else '/dev/ttyUSB0'
+BAUDRATE = 250000
+Z_OFFSET_VALUE = -1.35
+USE_M851 = True  # Állítsd False-ra, ha a nyomtató nem támogatja az M851-et
+# =============================
+
+def send_command(ser, command, wait=0.3):
+    print(f">>> {command}")
+    ser.write((command + '\n').encode())
+    time.sleep(wait)
+    while ser.in_waiting:
+        line = ser.readline().decode(errors='ignore').strip()
+        if line:
+            print(line)
 
 def main():
-    if sys.platform.startswith('win'):
-        port_name = 'COM6'
-    elif sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
-        port_name = '/dev/ttyUSB0'
-    else:
-        print(f"Nem támogatott platform: {sys.platform}")
-        sys.exit(1)
-
-
-
     try:
-        ser = serial.Serial(port_name, 250000, timeout=1)
-    except Exception as e:
-        print(f"Hiba a soros port megnyitásakor: {e}")
-        sys.exit(1)
+        ser = serial.Serial(PORT, BAUDRATE, timeout=2)
+        time.sleep(2)  # várunk, hogy felálljon a kapcsolat
+        ser.reset_input_buffer()
 
+        print("[INFO] Kapcsolódva a nyomtatóhoz.")
 
+        send_command(ser, 'M155 S0')  # disable temp reporting, ha aktív
+        send_command(ser, 'M115')     # firmware info
+        send_command(ser, 'M503')     # aktuális beállítások kiíratása
 
-    # GCodeControl objektum létrehozása és szál elindítása.
-    gcode_control = GCodeControl(ser)
+        # ========== Z OFFSET BEÁLLÍTÁS ==========
+        if USE_M851:
+            send_command(ser, f'M851 Z{Z_OFFSET_VALUE:.2f}')
+        else:
+            send_command(ser, f'M206 Z{Z_OFFSET_VALUE:.2f}')
 
-    # "G-code_lock": Lock(),
-    # "Camera_lock": Lock(),
-    # "common":      Lock()
-    lock_type = "G-code_lock"  # Változtathatod pl. "Camera_lock" vagy "common"-ra
-    thread_ctrl = LockRegistry(gcode_control, lock_type)
-    thread_ctrl.start_threads()
+        # ========== MENTÉS ==========
+        send_command(ser, 'M500')  # mentés EEPROM-ba
+        send_command(ser, 'M503')  # új értékek lekérdezése
 
+        ser.close()
+        print("[INFO] Kész.")
+    except serial.SerialException as e:
+        print(f"[HIBA] Nem sikerült csatlakozni: {e}")
+    except Exception as ex:
+        print(f"[HIBA] Általános hiba: {ex}")
 
-    ser.close()
 if __name__ == "__main__":
     main()

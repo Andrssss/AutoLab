@@ -148,13 +148,13 @@ class ManualControlWidget(QWidget):
 
         command = None
         if direction == "up":
-            command = "G91\nG1 X1 F3000\n"       # X+
+            command = "G91\nG1 X15 F3000\n"       # X+
         elif direction == "down":
-            command = "G91\nG1 X-1 F3000\n"      # X-
+            command = "G91\nG1 X-15 F3000\n"      # X-
         elif direction == "right":
-            command = "G91\nG1 Y1 F3000\n"       # Y+
+            command = "G91\nG1 Y15 F3000\n"       # Y+
         elif direction == "left":
-            command = "G91\nG1 Y-1 F3000\n"      # Y-
+            command = "G91\nG1 Y-15 F3000\n"      # Y-
 
         if command:
             print(f"[GCODE] {command.strip()}")
