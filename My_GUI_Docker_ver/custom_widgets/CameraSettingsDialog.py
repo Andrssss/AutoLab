@@ -36,6 +36,7 @@ class CameraSettingsDialog(QDialog):
         self.label_gain = QLabel(f"GAIN: {self.gain:.1f}")
         self.label_expo = QLabel(f"EXPO: {self.exposure:.1f}")
 
+        self.btn_reset = QPushButton("Reset")
         # Lépés 1: UI felépítés
         self._create_buttons()
         self._setup_layout()
@@ -70,6 +71,7 @@ class CameraSettingsDialog(QDialog):
         zoom_layout.addWidget(self.btn_focus_down)
         zoom_layout.addWidget(self.btn_focus_up)
         zoom_layout.addWidget(self.btn_blur)
+        zoom_layout.addWidget(self.btn_reset)
         layout.addLayout(zoom_layout)
 
         # Gain
@@ -92,6 +94,9 @@ class CameraSettingsDialog(QDialog):
         expo_display.addWidget(self.label_expo)
         layout.addLayout(expo_display)
 
+
+
+
         # Pan nyilak
         v_pan = QVBoxLayout()
         h_pan = QHBoxLayout()
@@ -101,6 +106,8 @@ class CameraSettingsDialog(QDialog):
         v_pan.addLayout(h_pan)
         v_pan.addWidget(self.btn_down, alignment=Qt.AlignCenter)
         layout.addLayout(v_pan)
+
+
 
         self.setLayout(layout)
 
@@ -168,6 +175,7 @@ class CameraSettingsDialog(QDialog):
         self.btn_up.released.connect(lambda: self.pan_timers["up"].stop())
         self.btn_down.pressed.connect(lambda: self.pan_timers["down"].start())
         self.btn_down.released.connect(lambda: self.pan_timers["down"].stop())
+        self.btn_reset.clicked.connect(self.reset_to_defaults)
 
         # --- Egykattintásos funkciók ---
         self.btn_blur.clicked.connect(self.apply_blur)
@@ -177,6 +185,7 @@ class CameraSettingsDialog(QDialog):
         self.btn_expo_down.clicked.connect(self.decrease_exposure)
         self.btn_focus_up.clicked.connect(self.increase_focus)
         self.btn_focus_down.clicked.connect(self.decrease_focus)
+        self.btn_reset.clicked.connect(self.reset_to_defaults)
 
     def update_frame(self):
         if self.cap and self.cap.isOpened():
@@ -218,6 +227,27 @@ class CameraSettingsDialog(QDialog):
             frame = frame[y1:y2, x1:x2]
 
         return frame
+
+    def reset_to_defaults(self):
+        self.zoom_level = 1.0
+        self.zoom_offset_x = 0.0
+        self.zoom_offset_y = 0.0
+        self.blur_enabled = False
+        self.gain = 0.0
+        self.exposure = -4.0
+
+        if self.cap:
+            self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
+            if platform.system() == "Linux":
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+            else:
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
+
+        self.label_gain.setText(f"GAIN: {self.gain:.1f}")
+        self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
+
+        print("[RESET] Minden érték alaphelyzetbe állítva.")
 
     def apply_blurr(self, frame):
         if self.blur_enabled:

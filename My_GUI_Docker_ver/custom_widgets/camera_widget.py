@@ -5,6 +5,8 @@ from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 import yaml
 from file_managers import config_manager
+from Image_processing.BacteriaAnalyzerWidget import BacteriaAnalyzerWidget
+
 
 from My_GUI_Docker_ver.custom_widgets.CameraSettingsDialog import CameraSettingsDialog
 
@@ -141,8 +143,12 @@ class CameraWidget(QWidget):
                 self.on_play()
 
     def on_play(self):
-        self.playPressed.emit()
         current_index = self.combo_cameras.currentData()
+        # Don't restart if it's already running and the selected camera is active
+        if self.timer.isActive() and current_index == self.camera_index:
+            print(f"[INFO] Camera {current_index} is already running. Ignoring Play.")
+            return
+        self.playPressed.emit()
         if current_index is not None:
             self.set_camera(current_index)
         if not self.timer.isActive():
@@ -233,6 +239,13 @@ class CameraWidget(QWidget):
 
             cv2.imwrite(filename, processed_frame)
             print(f"Kép elmentve: {filename}")
+
+            # 📸 Megnyitjuk a képet az elemzőben
+            self.open_bacteria_analyzer(filename)
+
+    def open_bacteria_analyzer(self, image_path):
+        self.analyzer_window = BacteriaAnalyzerWidget(image_path)
+        self.analyzer_window.show()
 
     def on_camera_change(self, i):
         index = self.combo_cameras.itemData(i)

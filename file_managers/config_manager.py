@@ -34,3 +34,15 @@ def save_camera_settings(index, data: dict):
 def load_camera_settings(index) -> dict:
     settings = load_settings()
     return settings.get("camera_settings", {}).get(str(index), {})
+
+def ensure_settings_yaml_exists(filepath="settings.yaml"):
+    if not os.path.exists(filepath):
+        print(f"[INFO] {filepath} nem található, létrehozás...")
+        try:
+            with open(filepath, "w") as f:
+                yaml.dump({}, f)
+            print(f"[OK] Üres {filepath} létrehozva.")
+        except Exception as e:
+            print(f"[HIBA] Nem sikerült létrehozni a {filepath} fájlt: {e}")
+    else:
+        print(f"[INFO] {filepath} már létezik.")

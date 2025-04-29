@@ -1,5 +1,6 @@
 import sys
-
+import os
+import yaml
 import cv2
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDockWidget, QAction
 from PyQt5.QtCore import Qt, QTimer
@@ -12,11 +13,13 @@ from .camera_dock import CameraDock
 from .custom_widgets.device_settings_widget import SettingsWidget
 from .custom_widgets.manual_control_widget import ManualControlWidget
 from .custom_widgets.marlin_config_window import MarlinConfigWindow  # Importálás a külön fájlból
+from file_managers.config_manager import ensure_settings_yaml_exists
 
 
 class MainWindow(QMainWindow):
     def __init__(self, g_control, locks):
         super().__init__()
+        ensure_settings_yaml_exists()  # ✅ Ensure settings file is present
         self.g_control = g_control
         self.locks = locks
 

@@ -8,6 +8,6 @@ class CameraDock(QDockWidget):
         self.setWidget(self.camera_widget)
 
     def closeEvent(self, event):
-        self.camera_widget.on_stop()
+        self.camera_widget.on_pause()
         self.log_widget.append_log("Camera panel bezárva (closeEvent), kamera leállítva.")
         super().closeEvent(event)

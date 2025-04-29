@@ -1,5 +1,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit
 from PyQt5.QtCore import pyqtSignal, QTimer
+from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import QSize
 
 from My_GUI_Docker_ver.custom_widgets.CommandSender import CommandSender
 
@@ -11,6 +13,8 @@ class ManualControlWidget(QWidget):
     def __init__(self, g_control, parent=None):
         super().__init__(parent)
         self.stopped = False  # ⛔ Stop állapot
+        self.paused = False
+
         self.g_control = g_control
 
         self.status_label = QLabel("Checking connection...")  # 💡 Előbb hozzuk létre
@@ -101,21 +105,30 @@ class ManualControlWidget(QWidget):
         # Start/Stop legalul
         bottom_layout = QHBoxLayout()
         btn_start = QPushButton("Start")
-        btn_stop = QPushButton("Stop")
+        btn_pause = QPushButton("Pause")
+        btn_stop = QPushButton("STOP !")
+        btn_stop.setStyleSheet("color: red; font-weight: bold;")
+
         bottom_layout.addWidget(btn_start)
+        bottom_layout.addWidget(btn_pause)
         bottom_layout.addWidget(btn_stop)
 
         btn_start.clicked.connect(self.on_start)
-        btn_stop.clicked.connect(self.on_stop)
+        btn_pause.clicked.connect(self.on_pause)
+        btn_stop.clicked.connect(self.emergency_stop)
         # btn_start.clicked.connect(lambda: self.actionCommand.emit("start"))
         # btn_stop.clicked.connect(lambda: self.actionCommand.emit("stop"))
         layout.addLayout(bottom_layout)
-
 
         # Save gomb
         btn_save = QPushButton("Save")
         btn_save.clicked.connect(lambda: self.actionCommand.emit("save"))
         layout.addWidget(btn_save)
+
+        # Home gomb
+        btn_home = QPushButton("Home")
+        btn_home.clicked.connect(self.send_home_command)
+        layout.addWidget(btn_home)
 
         # --- Kézi G-code beírás ---
         gcode_input_layout = QHBoxLayout()
@@ -136,10 +149,16 @@ class ManualControlWidget(QWidget):
     def on_start(self):
         print("[INFO] Start gomb megnyomva")
         self.stopped = False
+        if self.paused:
+            self.command_sender.sendCommand.emit("M24\n") # Folytatás parancs
+            self.paused = False
 
-    def on_stop(self):
-        print("[INFO] Stop gomb megnyomva")
+    def on_pause(self):
+        print("[INFO] Pause gomb megnyomva")
+        self.command_sender.sendCommand.emit("M0\n")  # Általános stop/szünet
         self.stopped = True
+        self.paused = True
+
 
 
     def send_move_command(self, direction):
@@ -160,13 +179,7 @@ class ManualControlWidget(QWidget):
             print(f"[GCODE] {command.strip()}")
             self.command_sender.sendCommand.emit(command)
 
-    def closeEvent(self, event):
-        print("🧹 ManualControlWidget.closeEvent() meghívva!")
-        if self.command_sender.isRunning():
-            self.command_sender.running = False
-            self.command_sender.quit()
-            self.command_sender.wait()
-        event.accept()
+
 
     def check_connection(self):
         ser = getattr(self.g_control, "ser", None)
@@ -215,14 +228,25 @@ class ManualControlWidget(QWidget):
         else:
             print("[HIBA] Gép nincs csatlakoztatva.")
 
+    def emergency_stop(self):
+        print("[VÉSZLEÁLLÍTÁS] A gép azonnali leállítása!")
+        self.stopped = True
+        self.command_sender.sendCommand.emit("M112\n")  # Vészleállítás G-kódja
+
+    def send_home_command(self):
+        print("[GCODE] G28")
+        self.command_sender.sendCommand.emit("G28\n")
+
     def closeEvent(self, event):
         # Ha az ablakot "X"-szel zárják be, itt NEM mentünk semmit.
         print("Manula control ablak bezárva felhasználó által (X), mentés kihagyva.")
         try:
-            self.command_sender.stop()
-            print("[INFO] Szálak sikeresen leálltak.")
+            if self.command_sender and self.command_sender.isRunning():
+                print("[INFO] CommandSender szál leállítása...")
+                self.command_sender.stop()
+                print("[INFO] Szál sikeresen leállítva.")
         except Exception as e:
-            print(f"[HIBA] Szálak leállítása közben hiba történt: {e}")
+            print(f"[HIBA] Szál leállítása közben hiba történt: {e}")
 
         event.accept()  # Engedélyezzük a bezárást
 
