@@ -9,7 +9,7 @@ class BacteriaDetector:
     def set_params(self, hue_ranges, size_ranges, split_threshold=40):
         self.hue_ranges = hue_ranges
         self.size_ranges = size_ranges
-        self.split_threshold = split_threshold
+        self.split_threshold = split_threshold / 20
 
     def detect(self, image, mask):
         if image is None or mask is None:
@@ -17,11 +17,12 @@ class BacteriaDetector:
 
         # Optional: apply slight blur to reduce noise
         blurred = cv2.GaussianBlur(image, (5, 5), 0)
-        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV) # transfer it to HSV because it easier to detect things in it
+        cv2.imwrite("output_hsv_vis.png", hsv)
 
         output = image.copy()
-        object_id = 1
-        category_counts = [0 for _ in self.hue_ranges]
+        object_id = 1 # all objects will get an id
+        category_counts = [0 for _ in self.hue_ranges] # hue = colour range
 
         # Display color per hue range
         colors = {
@@ -39,42 +40,47 @@ class BacteriaDetector:
 
             # 2. Morphological cleanup
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_CLOSE, kernel)
-            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_OPEN, kernel)
+            # cv2 Hosszúkás (nyújtott) ellipszis
+            # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 3))
+            # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 7))
+
+            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_CLOSE, kernel) # it will fill the little holes
+            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_OPEN, kernel) # delete little holes that was not filled
+
 
             # 3. Limit to inside Petri dish
             final_mask = cv2.bitwise_and(hsv_mask, hsv_mask, mask=mask)
+            cv2.imwrite("output_hsv_hole_deleted.png", final_mask)
+
+
+
+
 
             # === Split merged blobs using Distance Transform + Watershed ===
-
             # Step 1: Distance transform to find peaks (foreground centers)
             dist_transform = cv2.distanceTransform(final_mask, cv2.DIST_L2, 5)
-
             # 🔧 Controlled by UI slider
             threshold_value = (self.split_threshold / 100.0) * dist_transform.max()
             _, sure_fg = cv2.threshold(dist_transform, threshold_value, 255, 0)
             sure_fg = np.uint8(sure_fg)
-
             sure_fg = np.uint8(sure_fg)
-
             # Step 2: Identify unknown regions (edges between touching blobs)
             unknown = cv2.subtract(final_mask, sure_fg)
-
             # Step 3: Connected components on foreground
             _, markers = cv2.connectedComponents(sure_fg)
             markers = markers + 1  # reserve 0 for unknown
             markers[unknown == 255] = 0
-
             # Step 4: Convert to color image for watershed
             watershed_input = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).copy()
             cv2.watershed(watershed_input, markers)
-
             # Step 5: Create mask for new contours
             watershed_mask = np.zeros_like(final_mask)
             watershed_mask[markers > 1] = 255
-
             # Step 6: Find contours from watershed result
             contours, _ = cv2.findContours(watershed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+
+
 
             for contour in contours:
                 area = cv2.contourArea(contour)
@@ -107,7 +113,7 @@ class BacteriaDetector:
             cv2.putText(output, text, (35, y_start), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             y_start += 20
 
-        petri_mask_3ch = cv2.merge([mask, mask, mask])
-        output = cv2.bitwise_and(output, petri_mask_3ch)
 
         return output
+
+
