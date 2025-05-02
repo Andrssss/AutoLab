@@ -152,12 +152,14 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def open_marlin_config(self):
-        self.marlin_config_window = MarlinConfigWindow()
+        self.marlin_config_window = MarlinConfigWindow(self.g_control,self.log_widget)
         self.marlin_config_window.show()
+        self._config_refs = getattr(self, "_config_refs", [])
+        self._config_refs.append(self.marlin_config_window)  # hogy ne gyűjtse be a GC
 
 
     def open_manual_control_dock(self):
-        self.manual_widget = ManualControlWidget(self.g_control)
+        self.manual_widget = ManualControlWidget(self.g_control,self.log_widget)
         self.manual_dock = QDockWidget("Manual Control", self)
         self.manual_dock.setWidget(self.manual_widget)
 

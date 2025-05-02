@@ -2,6 +2,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLab
 from PyQt5.QtCore import pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QSize
+import time
 
 from My_GUI_Docker_ver.custom_widgets.CommandSender import CommandSender
 
@@ -10,11 +11,12 @@ class ManualControlWidget(QWidget):
     moveCommand = pyqtSignal(str)
     actionCommand = pyqtSignal(str)
 
-    def __init__(self, g_control, parent=None):
+    def __init__(self, g_control, log, parent=None):
         super().__init__(parent)
         self.stopped = False  # ⛔ Stop állapot
         self.paused = False
 
+        self.log = log
         self.g_control = g_control
 
         self.status_label = QLabel("Checking connection...")  # 💡 Előbb hozzuk létre
@@ -195,17 +197,14 @@ class ManualControlWidget(QWidget):
             print("[INFO] Előző CommandSender leállítása...")
             self.command_sender.stop()
 
-        self.try_auto_connect()
+        print("[INFO] Trying to connect...")
+        self.g_control.autoconnect()
         self.check_connection()
 
         # ✅ Új CommandSender indítása
         self.command_sender = CommandSender(self.g_control)
         self.command_sender.start()
 
-
-    def try_auto_connect(self):
-        print("[INFO] Trying to connect...")
-        self.g_control.autoconnect()
 
 
 
@@ -230,8 +229,16 @@ class ManualControlWidget(QWidget):
 
     def emergency_stop(self):
         print("[VÉSZLEÁLLÍTÁS] A gép azonnali leállítása!")
-        self.stopped = True
-        self.command_sender.sendCommand.emit("M112\n")  # Vészleállítás G-kódja
+        # self.stopped = True --> elég csak RAMPS-ot resetelni
+        self.command_sender.sendCommand.emit("M112\n")  # vészleállítás
+        self.log.append_log("[VÉSZLEÁLLÍTÁS] Nyomd meg RAMPS-on a reset gombot !")
+        time.sleep(0.2)
+        #self.command_sender.sendCommand.emit("M18\n")  # motor off
+        #self.command_sender.sendCommand.emit("M84\n")  # minden motor off
+        #time.sleep(0.2)
+        # Reset parancs – csak ha firmware engedi ---> nem engedi
+        # self.command_sender.sendCommand.emit("M999\n")
+        # print("[INFO] Reset (M999) parancs elküldve a firmware-nek.")
 
     def send_home_command(self):
         print("[GCODE] G28")

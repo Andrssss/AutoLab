@@ -3,6 +3,8 @@ import time
 import queue
 import serial  # pyserial
 import serial.tools.list_ports
+from file_managers import marlin_config_manager
+from My_G_codes.gcode_presets import MARLIN_COMMAND_MAP
 
 class GCodeControl:
     def __init__(self, lock=None):
@@ -18,6 +20,7 @@ class GCodeControl:
         self.x_motor_queue = queue.Queue()
         self.y_motor_queue = queue.Queue()
         self.aux_queue = queue.Queue()
+        self.control_queue = queue.Queue()
 
         self.running = True
 
@@ -85,8 +88,7 @@ class GCodeControl:
                 return None
 
     def worker_loop(self, q: queue.Queue, name: str):
-        """Általános szálkezelő, ami feldolgozza a queue-ban érkező parancsokat"""
-        if(self.connected):
+        if self.connected:
             print(f"[{name}] szál elindult.")
             while self.running:
                 try:
@@ -97,18 +99,18 @@ class GCodeControl:
                     if name in ("X_motor", "Y_motor"):
                         print(f"[{name}] → {command}")
                         self.send_command(command, wait_for_completion=True)
-                    else:
-                        if command == "set_aux":
-                            self.set_aux_output()
-                        elif command == "get_info":
-                            info = self.query_endstops()
-                            print(f"[AUX] Endstop info:\n{info}")
-                        elif command == "set_something":
-                            self.send_command("M42 P5 S255\n")  # Példa
+                    elif name == "AUX":
+                        # M42 vezérlés specifikusan
+                        if command.startswith("M42"):
+                            print(f"[AUX] M42 parancs: {command}")
+                            self.send_command(command, wait_for_completion=True)
+                    elif name == "CONTROL":
+                        print(f"[CONTROL] → {command}")
+                        self.send_command(command, wait_for_completion=True)
                 except queue.Empty:
                     continue
         else:
-            print("worker_loop - not connected")
+            print(f"{name} - not connected")
 
     def start_threads(self):
         if (self.connected):
@@ -121,7 +123,9 @@ class GCodeControl:
             self.x_thread = threading.Thread(target=self.worker_loop, args=(self.x_motor_queue, "X_motor"))
             self.y_thread = threading.Thread(target=self.worker_loop, args=(self.y_motor_queue, "Y_motor"))
             self.aux_thread = threading.Thread(target=self.worker_loop, args=(self.aux_queue, "AUX"))
+            self.control_thread = threading.Thread(target=self.worker_loop, args=(self.control_queue, "CONTROL"))
 
+            self.control_thread.start()
             self.x_thread.start()
             self.y_thread.start()
             self.aux_thread.start()
@@ -133,19 +137,35 @@ class GCodeControl:
         self.lock = lock
 
     def stop_threads(self):
-        """Szálak szabályos leállítása"""
+        """Szálak szabályos leállítása ÉS kapcsolatbontás"""
+        self.send_command("M0\n")  # Pause
+        self.send_command("M18\n")  # Motor kikapcs
+
         self.running = False
         self.x_motor_queue.put("STOP")
         self.y_motor_queue.put("STOP")
         self.aux_queue.put("STOP")
+        self.control_queue.put("STOP")
 
         try:
             self.x_thread.join(timeout=2)
             self.y_thread.join(timeout=2)
             self.aux_thread.join(timeout=2)
+            self.control_thread.join(timeout=2)
             print("[INFO] Szálak sikeresen leálltak.")
         except Exception as e:
             print(f"[HIBA] Szálak leállítása közben hiba történt: {e}")
+
+        # --- 🔌 Kapcsolat bontás ---
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+                print("[INFO] Soros port szabályosan bezárva.")
+        except Exception as e:
+            print(f"[HIBA] Port lezárása nem sikerült: {e}")
+
+        self.ser = None
+        self.set_connected(False)
 
     # 💡 Parancsokhoz tartozó logikák
     def set_aux_output(self):
@@ -181,28 +201,28 @@ class GCodeControl:
             return ""
 
     def new_command(self, command: str):
-        if (self.connected):
-            # Új G-kód fogadása: irány szerint sorba állítja a megfelelő queue-ba.
-            cmd_upper = command.upper()
+        if self.connected:
+            cmd_upper = command.upper().strip()
 
-            # Előfeldolgozás: eltávolítjuk a kommenteket, üres helyeket
-            cmd_clean = cmd_upper.strip()
-
-            if "G1" in cmd_clean or "G0" in cmd_clean:
-                if "X" in cmd_clean and "Y" not in cmd_clean:
-                    print("[DISPATCH] X_motor_queue ←", cmd_clean)
-                    self.send_to_x(cmd_clean)
-                elif "Y" in cmd_clean and "X" not in cmd_clean:
-                    print("[DISPATCH] Y_motor_queue ←", cmd_clean)
-                    self.send_to_y(cmd_clean)
+            if "G1" in cmd_upper or "G0" in cmd_upper:
+                if "X" in cmd_upper and "Y" not in cmd_upper:
+                    print("[DISPATCH] X_motor_queue ←", cmd_upper)
+                    self.send_to_x(cmd_upper)
+                elif "Y" in cmd_upper and "X" not in cmd_upper:
+                    print("[DISPATCH] Y_motor_queue ←", cmd_upper)
+                    self.send_to_y(cmd_upper)
                 else:
-                    print("[DISPATCH] AUX_queue ←", cmd_clean)
-                    self.send_aux(cmd_clean)
+                    print("[DISPATCH] CONTROL_queue (XY kevert vagy más) ←", cmd_upper)
+                    self.send_to_control(cmd_upper)
+            elif cmd_upper.startswith("M42"):
+                print("[DISPATCH] AUX_queue (M42) ←", cmd_upper)
+                self.send_to_aux(cmd_upper)
             else:
-                print("[DISPATCH] AUX_queue (nem mozgásparancs) ←", cmd_clean)
-                self.send_aux(cmd_clean)
+                print("[DISPATCH] CONTROL_queue ←", cmd_upper)
+                self.send_to_control(cmd_upper)
         else:
-            print("start_threads - not connected")
+            print("new_command - not connected")
+
 
     def autoconnect(self):
         self.log("[INFO] autoconnect() meghívva")
@@ -239,6 +259,7 @@ class GCodeControl:
                         self.label_status.setText(f"Sikeres csatlakozás: {preferred_port} @ {preferred_baud} baud")
                     self.log(f"[INFO] Sikeres csatlakozás (elmentett): {preferred_port} @ {preferred_baud}")
                     self.start_threads()  # 🔥 Itt indítjuk el a szálakat
+                    self.load_marlin_config()
                     return
                 else:
                     ser.close()
@@ -279,6 +300,7 @@ class GCodeControl:
                         })
 
                         self.start_threads()  # 🔥 Itt is indítjuk a szálakat
+                        self.load_marlin_config()
                         return
                     else:
                         ser.close()
@@ -290,6 +312,18 @@ class GCodeControl:
             self.label_status.setText("Nem sikerült csatlakozni egyetlen soros porthoz sem.")
         self.log("[INFO] Nem sikerült csatlakozni.")
 
+
+
+    def load_marlin_config(self):
+        # Betöltjük és alkalmazzuk a beállításokat
+        try:
+            marlin_config = marlin_config_manager.load_settings()
+            self.apply_marlin_settings(marlin_config)
+            self.log("[INFO] Marlin beállítások betöltve és alkalmazva.")
+        except Exception as e:
+            self.log(f"[HIBA] Marlin beállítások betöltése sikertelen: {e}")
+
+
     def log(self, message):
         if self.log_widget:
             self.log_widget.append_log(message)
@@ -300,4 +334,43 @@ class GCodeControl:
     def send_to_x(self, gcode): self.x_motor_queue.put(gcode)
     def send_to_y(self, gcode): self.y_motor_queue.put(gcode)
     def send_aux(self, action): self.aux_queue.put(action)
+    def send_to_control(self, gcode): self.control_queue.put(gcode)
+
+
+
+    def apply_marlin_settings(self, settings: dict):
+        if not self.connected:
+            self.log("[HIBA] Nem lehet beállításokat alkalmazni – nincs kapcsolat.")
+            return
+
+        # key: a szótár kulcsa (pl. "motor_current", "feedrate", "steps_per_mm")
+        # meta: a kulcshoz tartozó érték, ami egy további szótár
+        for key, meta in MARLIN_COMMAND_MAP.items():
+            if key not in settings: # Ellenőrzi, hogy szerepel-e a settings-ben
+                continue
+
+            value = settings[key]
+            cmd = meta["cmd"] # kiolvassa az adott konfigurációhoz tartozó G-code parancs nevét a meta szótárból. PL.: M906
+
+            if "format" in meta: # ellenőrzi, hogy a meta nevű szótár (dictionary) tartalmazza-e a "format" kulcsot.
+                formatted = meta["format"](value) # Egyedi formázás (pl. G1 F1500 vagy M204 P500 T500)
+                self.send_command(f"{cmd} {formatted}\n")
+                self.log(f"[GCODE] {cmd} {formatted}")
+            # "type": "dict"
+            elif meta.get("type") == "dict" and isinstance(value, dict):
+                axes = meta.get("axes", "")
+                parts = [f"{axis}{value[axis]}" for axis in axes if axis in value] # ha tengelyenként eltérő értékeket tartalmaz.
+                if parts:
+                    full = f"{cmd} {' '.join(parts)}"
+                    self.send_command(full + "\n")
+                    self.log(f"[GCODE] {full}")
+            # "type": "value"
+            elif meta.get("type") == "value" and isinstance(value, (int, float)):
+                # Pl. motor_current → M906 X800 Y800 ...
+                axes = meta.get("axes", "")
+                parts = [f"{axis}{value}" for axis in axes]  # ha minden tengelyre ugyanaz
+                if parts:
+                    full = f"{cmd} {' '.join(parts)}"
+                    self.send_command(full + "\n")
+                    self.log(f"[GCODE] {full}")
 
