@@ -1,9 +1,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit
 from PyQt5.QtCore import pyqtSignal, QTimer
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import QSize
+from PyQt5.QtCore import Qt
 import time
-
 from My_GUI_Docker_ver.custom_widgets.CommandSender import CommandSender
 
 
@@ -35,8 +33,16 @@ class ManualControlWidget(QWidget):
         btn_reconnect = QPushButton("Reconnect")
         btn_reconnect.clicked.connect(self.reconnect)
         status_layout.addWidget(btn_reconnect)
-
         layout.addLayout(status_layout)
+
+
+        # Konfiguráció lekérdezése gomb
+        btn_check_config = QPushButton("Check Config")
+        btn_check_config.clicked.connect(self.query_config)
+        layout.addWidget(btn_check_config)
+
+
+
         # Mozgatási időzítők
         self.timers = {
             "up": QTimer(self),
@@ -181,7 +187,20 @@ class ManualControlWidget(QWidget):
             print(f"[GCODE] {command.strip()}")
             self.command_sender.sendCommand.emit(command)
 
+    def query_config(self):
+        if self.g_control.connected:
+            print("[INFO] Konfiguráció lekérdezése...")
+            # Válaszként a log-ba írás a CommandSender-ből történik
+            self.g_control.send_command("M503\n") # Marlin: M503 kiírja a beállításokat
+        else:
+            print("[HIBA] Gép nincs csatlakoztatva.")
+            self.log.append_log("[HIBA] Gép nincs csatlakoztatva konfiguráció lekérdezéséhez.")
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            print("[INFO] Bal gomb → check_connection()")
+            self.check_connection()
+        super().mousePressEvent(event)
 
     def check_connection(self):
         ser = getattr(self.g_control, "ser", None)

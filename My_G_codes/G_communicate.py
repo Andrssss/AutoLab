@@ -4,6 +4,7 @@ import queue
 import serial  # pyserial
 import serial.tools.list_ports
 from file_managers import marlin_config_manager
+from file_managers import config_manager
 from My_G_codes.gcode_presets import MARLIN_COMMAND_MAP
 
 class GCodeControl:
@@ -81,6 +82,7 @@ class GCodeControl:
                 response = self.ser.readline().decode('utf-8', errors='ignore').strip().lower()
 
             if "ok" in response:
+                # return None
                 return response
 
             if time.time() - start_time > timeout:
@@ -136,36 +138,6 @@ class GCodeControl:
     def set_lock(self, lock):
         self.lock = lock
 
-    def stop_threads(self):
-        """Szálak szabályos leállítása ÉS kapcsolatbontás"""
-        self.send_command("M0\n")  # Pause
-        self.send_command("M18\n")  # Motor kikapcs
-
-        self.running = False
-        self.x_motor_queue.put("STOP")
-        self.y_motor_queue.put("STOP")
-        self.aux_queue.put("STOP")
-        self.control_queue.put("STOP")
-
-        try:
-            self.x_thread.join(timeout=2)
-            self.y_thread.join(timeout=2)
-            self.aux_thread.join(timeout=2)
-            self.control_thread.join(timeout=2)
-            print("[INFO] Szálak sikeresen leálltak.")
-        except Exception as e:
-            print(f"[HIBA] Szálak leállítása közben hiba történt: {e}")
-
-        # --- 🔌 Kapcsolat bontás ---
-        try:
-            if self.ser and self.ser.is_open:
-                self.ser.close()
-                print("[INFO] Soros port szabályosan bezárva.")
-        except Exception as e:
-            print(f"[HIBA] Port lezárása nem sikerült: {e}")
-
-        self.ser = None
-        self.set_connected(False)
 
     # 💡 Parancsokhoz tartozó logikák
     def set_aux_output(self):
@@ -237,7 +209,6 @@ class GCodeControl:
 
         # YAML-ból próbálunk először csatlakozni
         try:
-            from file_managers import config_manager
             settings = config_manager.load_settings()
             preferred_port = settings.get("selected_port", None)
             preferred_baud = settings.get("baud", None)
@@ -259,6 +230,7 @@ class GCodeControl:
                         self.label_status.setText(f"Sikeres csatlakozás: {preferred_port} @ {preferred_baud} baud")
                     self.log(f"[INFO] Sikeres csatlakozás (elmentett): {preferred_port} @ {preferred_baud}")
                     self.start_threads()  # 🔥 Itt indítjuk el a szálakat
+                    self.start_response_listener()
                     self.load_marlin_config()
                     return
                 else:
@@ -300,6 +272,7 @@ class GCodeControl:
                         })
 
                         self.start_threads()  # 🔥 Itt is indítjuk a szálakat
+                        self.start_response_listener()
                         self.load_marlin_config()
                         return
                     else:
@@ -312,7 +285,29 @@ class GCodeControl:
             self.label_status.setText("Nem sikerült csatlakozni egyetlen soros porthoz sem.")
         self.log("[INFO] Nem sikerült csatlakozni.")
 
+    def start_response_listener(self):
+        if hasattr(self, "response_thread") and self.response_thread.is_alive():
+            self.log("[INFO] Válaszfigyelő szál már fut.")
+            return
 
+        self.response_running = True
+        self.response_thread = threading.Thread(target=self.response_loop, daemon=True)
+        self.response_thread.start()
+        self.log("[INFO] Válaszfigyelő szál elindítva.")
+
+    def response_loop(self):
+        while self.response_running and self.connected and self.ser:
+            try:
+                if self.ser.in_waiting:
+                    line = self.ser.readline().decode('utf-8', errors='ignore').strip()
+                    if line:
+                        if line != "ok" :
+                            self.log(f"[RESPONSE] {line}")
+                else:
+                    time.sleep(0.05)
+            except Exception as e:
+                self.log(f"[HIBA] Válasz olvasási hiba: {e}")
+                break
 
     def load_marlin_config(self):
         # Betöltjük és alkalmazzuk a beállításokat
@@ -333,7 +328,7 @@ class GCodeControl:
     # 💬 Külső parancsküldés
     def send_to_x(self, gcode): self.x_motor_queue.put(gcode)
     def send_to_y(self, gcode): self.y_motor_queue.put(gcode)
-    def send_aux(self, action): self.aux_queue.put(action)
+    def send_to_aux(self, action): self.aux_queue.put(action)
     def send_to_control(self, gcode): self.control_queue.put(gcode)
 
 
@@ -373,4 +368,41 @@ class GCodeControl:
                     full = f"{cmd} {' '.join(parts)}"
                     self.send_command(full + "\n")
                     self.log(f"[GCODE] {full}")
+
+
+    def stop_threads(self):
+        """Szálak szabályos leállítása ÉS kapcsolatbontás"""
+        self.send_command("M0\n")  # Pause
+        self.send_command("M18\n")  # Motor kikapcs
+
+        self.running = False
+        self.x_motor_queue.put("STOP")
+        self.y_motor_queue.put("STOP")
+        self.aux_queue.put("STOP")
+        self.control_queue.put("STOP")
+
+        try:
+            self.x_thread.join(timeout=2)
+            self.y_thread.join(timeout=2)
+            self.aux_thread.join(timeout=2)
+            self.control_thread.join(timeout=2)
+            print("[INFO] Szálak sikeresen leálltak.")
+        except Exception as e:
+            print(f"[HIBA] Szálak leállítása közben hiba történt: {e}")
+
+        # --- 🔌 Kapcsolat bontás ---
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+                print("[INFO] Soros port szabályosan bezárva.")
+        except Exception as e:
+            print(f"[HIBA] Port lezárása nem sikerült: {e}")
+
+        self.ser = None
+        self.set_connected(False)
+
+        self.response_running = False
+        if hasattr(self, "response_thread"):
+            self.response_thread.join(timeout=2)
+            self.log("[INFO] Válaszfigyelő szál leállítva.")
 
