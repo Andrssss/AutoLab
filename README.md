@@ -1,5 +1,5 @@
-We are developing a Colono Picker machine, and we are in charge of both hardware and software development.
-The software performs three main functions: hardware control , image processing , GUI.
+We are developing a Colono Picker machine, and we are in charge of both hardware and software development.  
+The software performs three main functions: hardware control , image processing , GUI.  
 The development is ongoing.
 
 Documentation : 
