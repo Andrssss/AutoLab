@@ -4,11 +4,11 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 import yaml
-from file_managers import config_manager
-from Image_processing.BacteriaAnalyzerWidget import BacteriaAnalyzerWidget
+from File_managers import config_manager
+from GUI.custom_widgets.photo_pipeline.pipeline_widget import PipelineWidget
 
 
-from My_GUI_Docker_ver.custom_widgets.CameraSettingsDialog import CameraSettingsDialog
+from GUI.custom_widgets.mainwindow_components.CameraSettingsDialog import CameraSettingsDialog
 
 
 class CameraWidget(QWidget):
@@ -22,7 +22,7 @@ class CameraWidget(QWidget):
         self.available_cams = available_cams or []
 
         # ⬇️ Itt jön a mentett beállítások betöltése
-        from file_managers import config_manager
+        from File_managers import config_manager
         camera_settings = config_manager.load_camera_settings(self.camera_index)
         self.zoom_level = camera_settings.get("zoom_level", 1.0)
         self.zoom_offset_x = camera_settings.get("offset_x", 0.0)
@@ -110,8 +110,6 @@ class CameraWidget(QWidget):
             self.combo_cameras.setCurrentIndex(0)
             self.load_camera_index_from_yaml()  # Itt töltjük be yaml-ból
             self.on_play() # azonnal indítás
-
-    from file_managers import config_manager
 
     def set_camera(self, index):
         self.camera_index = index
@@ -243,9 +241,16 @@ class CameraWidget(QWidget):
             # 📸 Megnyitjuk a képet az elemzőben
             self.open_bacteria_analyzer(filename)
 
+    def open_bacteria_analyzer(self, image_path=None):
+        self.analyzer_window = PipelineWidget(image_path)
+        self.analyzer_window.show()
+    '''
+    # The old version 
     def open_bacteria_analyzer(self, image_path):
         self.analyzer_window = BacteriaAnalyzerWidget(image_path)
         self.analyzer_window.show()
+    '''
+
 
     def on_camera_change(self, i):
         index = self.combo_cameras.itemData(i)

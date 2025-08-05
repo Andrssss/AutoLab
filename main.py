@@ -1,8 +1,8 @@
 import sys
 from PyQt5.QtWidgets import QApplication
-from My_GUI_Docker_ver.main_window import MainWindow
-from My_G_codes.G_communicate import GCodeControl
-from THREADS.thread_control import LockRegistry
+from GUI.main_window import MainWindow
+from Pozitioner_and_Communicater.G_communicate import GCodeControl
+from Locks.locks import LockRegistry
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
@@ -19,6 +19,8 @@ if __name__ == "__main__":
     window = MainWindow(g_control, locks)
     window.show()
 
+
+    del locks
     del g_control
     sys.exit(app.exec_())
 

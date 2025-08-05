@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QHBoxLayout, QMessageBox, QMenu, QAction
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from file_managers import config_manager
+from File_managers import config_manager
 
 
 

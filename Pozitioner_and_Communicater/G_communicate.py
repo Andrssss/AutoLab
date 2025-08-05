@@ -3,9 +3,9 @@ import time
 import queue
 import serial  # pyserial
 import serial.tools.list_ports
-from file_managers import marlin_config_manager
-from file_managers import config_manager
-from My_G_codes.gcode_presets import MARLIN_COMMAND_MAP
+from File_managers import marlin_config_manager
+from File_managers import config_manager
+from Pozitioner_and_Communicater.gcode_presets import MARLIN_COMMAND_MAP
 
 class GCodeControl:
     def __init__(self, lock=None):

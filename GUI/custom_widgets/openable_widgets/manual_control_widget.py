@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLab
 from PyQt5.QtCore import pyqtSignal, QTimer
 from PyQt5.QtCore import Qt
 import time
-from My_GUI_Docker_ver.custom_widgets.CommandSender import CommandSender
+from GUI.custom_widgets.mainwindow_components.CommandSender import CommandSender
 
 
 class ManualControlWidget(QWidget):

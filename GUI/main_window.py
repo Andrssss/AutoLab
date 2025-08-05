@@ -1,19 +1,15 @@
-import sys
-import os
-import yaml
 import cv2
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDockWidget, QAction
 from PyQt5.QtCore import Qt, QTimer
 
-from file_managers import config_manager # ne töröld ki, mert ne
-from .custom_widgets.camera_widget import CameraWidget  # "." kell, hogy relatív legyen a címzés, ne kérdezd, ez csak úgy kell.
-from .custom_widgets.log_widget import LogWidget
-from .custom_widgets.control_widget import ControlWidget
+from GUI.custom_widgets.mainwindow_components.camera_widget import CameraWidget  # "." kell, hogy relatív legyen a címzés, ne kérdezd, ez csak úgy kell.
+from GUI.custom_widgets.mainwindow_components.log_widget import LogWidget
+from GUI.custom_widgets.mainwindow_components.control_widget import ControlWidget
 from .camera_dock import CameraDock
-from .custom_widgets.device_settings_widget import SettingsWidget
-from .custom_widgets.manual_control_widget import ManualControlWidget
-from .custom_widgets.marlin_config_window import MarlinConfigWindow  # Importálás a külön fájlból
-from file_managers.config_manager import ensure_settings_yaml_exists
+from GUI.custom_widgets.openable_widgets.device_settings_widget import SettingsWidget
+from GUI.custom_widgets.openable_widgets.manual_control_widget import ManualControlWidget
+from GUI.custom_widgets.openable_widgets.marlin_config_window import MarlinConfigWindow  # Importálás a külön fájlból
+from File_managers.config_manager import ensure_settings_yaml_exists
 
 
 class MainWindow(QMainWindow):

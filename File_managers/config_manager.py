@@ -1,13 +1,17 @@
 import yaml
 import os
 
-SETTINGS_FILE = "settings.yaml"
+# Path to the config_profiles directory (relative to this file)
+CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config_profiles')
+SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.yaml")
 
 def load_settings():
+    ensure_settings_yaml_exists()
     if not os.path.exists(SETTINGS_FILE):
         return {}
     with open(SETTINGS_FILE, "r") as file:
         return yaml.safe_load(file) or {}
+
 
 def save_settings(settings):
     with open(SETTINGS_FILE, "w") as file:
@@ -35,7 +39,11 @@ def load_camera_settings(index) -> dict:
     settings = load_settings()
     return settings.get("camera_settings", {}).get(str(index), {})
 
-def ensure_settings_yaml_exists(filepath="settings.yaml"):
+def ensure_settings_yaml_exists(filepath=SETTINGS_FILE):
+    """Ensure the settings.yaml exists in the config_profiles folder."""
+    if not os.path.exists(CONFIG_DIR):
+        os.makedirs(CONFIG_DIR)
+
     if not os.path.exists(filepath):
         print(f"[INFO] {filepath} nem található, létrehozás...")
         try:

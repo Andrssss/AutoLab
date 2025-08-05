@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QLabel, QFileDialog, QMessageBox, QGridLayout
 )
-from file_managers import marlin_config_manager
+from File_managers import marlin_config_manager
 
 PROFILE_DIR = "config_profiles"
 os.makedirs(PROFILE_DIR, exist_ok=True)

@@ -1,10 +1,14 @@
 import cv2
 import numpy as np
+import os
 
 class BacteriaDetector:
     def __init__(self):
         self.hue_ranges = [(0, 30), (30, 90), (90, 150), (150, 179)]  # Default hue categories
         self.size_ranges = [(100, 500), (500, 1500), (1500, 99999)]   # Size categories
+
+        # Determine the folder where this script lives
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
 
     def set_params(self, hue_ranges, size_ranges, split_threshold=40):
         self.hue_ranges = hue_ranges
@@ -17,14 +21,16 @@ class BacteriaDetector:
 
         # Optional: apply slight blur to reduce noise
         blurred = cv2.GaussianBlur(image, (5, 5), 0)
-        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV) # transfer it to HSV because it easier to detect things in it
-        cv2.imwrite("output_hsv_vis.png", hsv)
+        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+
+        # Save HSV preview
+        hsv_path = os.path.join(self.script_dir, "output_hsv_vis.png")
+        cv2.imwrite(hsv_path, hsv)
 
         output = image.copy()
-        object_id = 1 # all objects will get an id
-        category_counts = [0 for _ in self.hue_ranges] # hue = colour range
+        object_id = 1
+        category_counts = [0 for _ in self.hue_ranges]
 
-        # Display color per hue range
         colors = {
             0: (255, 0, 0),     # Red
             1: (0, 255, 0),     # Green
@@ -33,60 +39,40 @@ class BacteriaDetector:
         }
 
         for hue_idx, (h_min, h_max) in enumerate(self.hue_ranges):
-            # 1. Define HSV range
             lower = np.array([h_min, 50, 50])
             upper = np.array([h_max, 255, 255])
             hsv_mask = cv2.inRange(hsv, lower, upper)
 
-            # 2. Morphological cleanup
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            # cv2 Hosszúkás (nyújtott) ellipszis
-            # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 3))
-            # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 7))
+            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_CLOSE, kernel)
+            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_OPEN, kernel)
 
-            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_CLOSE, kernel) # it will fill the little holes
-            hsv_mask = cv2.morphologyEx(hsv_mask, cv2.MORPH_OPEN, kernel) # delete little holes that was not filled
-
-
-            # 3. Limit to inside Petri dish
             final_mask = cv2.bitwise_and(hsv_mask, hsv_mask, mask=mask)
-            cv2.imwrite("output_hsv_hole_deleted.png", final_mask)
 
+            # Save final mask for debug
+            final_mask_path = os.path.join(self.script_dir, f"output_hsv_hole_deleted_cat{hue_idx + 1}.png")
+            cv2.imwrite(final_mask_path, final_mask)
 
-
-
-
-            # === Split merged blobs using Distance Transform + Watershed ===
-            # Step 1: Distance transform to find peaks (foreground centers)
+            # === Split merged blobs ===
             dist_transform = cv2.distanceTransform(final_mask, cv2.DIST_L2, 5)
-            # 🔧 Controlled by UI slider
             threshold_value = (self.split_threshold / 100.0) * dist_transform.max()
             _, sure_fg = cv2.threshold(dist_transform, threshold_value, 255, 0)
             sure_fg = np.uint8(sure_fg)
-            sure_fg = np.uint8(sure_fg)
-            # Step 2: Identify unknown regions (edges between touching blobs)
             unknown = cv2.subtract(final_mask, sure_fg)
-            # Step 3: Connected components on foreground
             _, markers = cv2.connectedComponents(sure_fg)
-            markers = markers + 1  # reserve 0 for unknown
+            markers = markers + 1
             markers[unknown == 255] = 0
-            # Step 4: Convert to color image for watershed
             watershed_input = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).copy()
             cv2.watershed(watershed_input, markers)
-            # Step 5: Create mask for new contours
+
             watershed_mask = np.zeros_like(final_mask)
             watershed_mask[markers > 1] = 255
-            # Step 6: Find contours from watershed result
             contours, _ = cv2.findContours(watershed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-
-
 
             for contour in contours:
                 area = cv2.contourArea(contour)
                 matched = False
 
-                # Match area to size category
                 for size_idx, (min_size, max_size) in enumerate(self.size_ranges):
                     if min_size <= area <= max_size:
                         matched = True
@@ -95,7 +81,6 @@ class BacteriaDetector:
                 if not matched:
                     continue
 
-                # Draw result
                 color = colors.get(hue_idx % len(colors), (255, 255, 255))
                 cv2.drawContours(output, [contour], -1, color, 2)
                 x, y, w, h = cv2.boundingRect(contour)
@@ -104,16 +89,13 @@ class BacteriaDetector:
                 object_id += 1
                 category_counts[hue_idx] += 1
 
-        # Draw category counts as a legend
+        # Draw legend
         y_start = 20
         for idx, count in enumerate(category_counts):
-            text = f"Cat {idx+1} ({self.hue_ranges[idx][0]}–{self.hue_ranges[idx][1]}): {count}"
+            text = f"Cat {idx + 1} ({self.hue_ranges[idx][0]}–{self.hue_ranges[idx][1]}): {count}"
             color = colors.get(idx % len(colors), (255, 255, 255))
             cv2.rectangle(output, (10, y_start - 12), (30, y_start + 4), color, -1)
             cv2.putText(output, text, (35, y_start), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             y_start += 20
 
-
         return output
-
-

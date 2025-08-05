@@ -1,7 +1,7 @@
 import time # File jó linux-on is
 import serial
 import re
-from My_G_codes.trigger import Endstop
+#from Pozitioner_and_Communicater.trigger import Endstop
 
 class MotorController:
     def __init__(self, port, baudrate=250000, timeout=1):
@@ -11,12 +11,12 @@ class MotorController:
         self.current_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
         # Endstop objektumok az egyes tengelyekhez
         self.endstops = {
-            'x_min': Endstop('x', 'min'),
-            'x_max': Endstop('x', 'max'),
-            'y_min': Endstop('y', 'min'),
-            'y_max': Endstop('y', 'max'),
-            'z_min': Endstop('z', 'min'),
-            'z_max': Endstop('z', 'max')
+            #'x_min': Endstop('x', 'min'),
+            #'x_max': Endstop('x', 'max'),
+            #'y_min': Endstop('y', 'min'),
+            #'y_max': Endstop('y', 'max'),
+            #'z_min': Endstop('z', 'min'),
+            #'z_max': Endstop('z', 'max')
         }
 
     def close(self):

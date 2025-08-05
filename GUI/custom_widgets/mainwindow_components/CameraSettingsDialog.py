@@ -2,7 +2,7 @@ import cv2
 from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QPushButton, QHBoxLayout
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap
-from file_managers import config_manager  # ne töröld ki, kell
+from File_managers import config_manager  # ne töröld ki, kell
 import platform
 from functools import partial
 
@@ -322,7 +322,7 @@ class CameraSettingsDialog(QDialog):
         self.timer.stop()
         if self.cap:
             self.cap.release()
-        from file_managers import config_manager  # ha még nem volt
+        from File_managers import config_manager  # ha még nem volt
 
         settings_data = {
             "zoom_level": self.zoom_level,
