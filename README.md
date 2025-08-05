@@ -13,3 +13,6 @@ The development is currently in progress.
 This diagram represents the overall system architecture. The Marlin firmware is uploaded to the microcontroller, which communicates with a computer via a serial port. On the computer side, a Python script handles the communication, sending and receiving commands over the serial connection. : 
 
 <img width="816" height="488" alt="Image" src="https://github.com/user-attachments/assets/6119dfe0-2ba3-4ac7-90c9-5ed827b86d04" />
+
+
+📄 **More information:** [Link](https://docs.google.com/presentation/d/1tv6fvzFF_VabFP51NZUaaX8kDvllnyap/edit?usp=sharing&ouid=106451542874986114178&rtpof=true&sd=true)
