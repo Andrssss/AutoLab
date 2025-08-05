@@ -15,4 +15,4 @@ This diagram represents the overall system architecture. The Marlin firmware is 
 <img width="816" height="488" alt="Image" src="https://github.com/user-attachments/assets/6119dfe0-2ba3-4ac7-90c9-5ed827b86d04" />
 
 
-📄 **More information:** [Link](https://docs.google.com/presentation/d/1tv6fvzFF_VabFP51NZUaaX8kDvllnyap/edit?usp=sharing&ouid=106451542874986114178&rtpof=true&sd=true)
+📄 **More information:** [Link](https://drive.google.com/file/d/1OmkWnnnsF8DA-Suh2_xPcYgGJMbaP0Y7/view?usp=sharing)
