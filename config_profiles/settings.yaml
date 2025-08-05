@@ -1,0 +1,19 @@
+baud: 250000
+camera_index: 0
+camera_settings:
+  '0':
+    blur: false
+    exposure: -6.0
+    gain: -2.0
+    offset_x: 0.39999999999999997
+    offset_y: 0.44999999999999996
+    zoom_level: 1.5000000000000004
+  '1':
+    blur: true
+    exposure: -5.0
+    gain: 15.0
+    offset_x: 0.39999999999999997
+    offset_y: 0.20000000000000034
+    zoom_level: 1.5000000000000004
+selected_port: COM6
+text_value: szovegszoveg
