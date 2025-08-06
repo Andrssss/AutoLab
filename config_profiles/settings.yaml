@@ -3,11 +3,12 @@ camera_index: 0
 camera_settings:
   '0':
     blur: false
-    exposure: -6.0
-    gain: -2.0
-    offset_x: 0.39999999999999997
-    offset_y: 0.44999999999999996
-    zoom_level: 1.5000000000000004
+    exposure: -4.0
+    gain: 0.0
+    offset_x: 0.0
+    offset_y: 0.0
+    pixel_per_cm: 97.20082304178294
+    zoom_level: 1.0
   '1':
     blur: true
     exposure: -5.0

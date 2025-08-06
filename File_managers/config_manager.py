@@ -27,17 +27,26 @@ def update_settings(updates: dict):
     settings.update(updates)  # több kulcsot is hozzáad/frissít
     save_settings(settings)
 
+
 def save_camera_settings(index, data: dict):
     settings = load_settings()
+    # Biztosítjuk, hogy legyen camera_settings rész
     if "camera_settings" not in settings:
         settings["camera_settings"] = {}
-
-    settings["camera_settings"][str(index)] = data  # kulcs legyen str!
+    index_str = str(index)
+    # Ha már van bejegyzés ehhez a kamerához, csak frissítsük a mezőket
+    if index_str not in settings["camera_settings"]:
+        settings["camera_settings"][index_str] = {}
+    settings["camera_settings"][index_str].update(data)
     save_settings(settings)
 
-def load_camera_settings(index) -> dict:
+
+def load_camera_settings(index=None) -> dict:
     settings = load_settings()
-    return settings.get("camera_settings", {}).get(str(index), {})
+    camera_settings = settings.get("camera_settings", {})
+    if index is not None:
+        return camera_settings.get(str(index), {})
+    return camera_settings
 
 def ensure_settings_yaml_exists(filepath=SETTINGS_FILE):
     """Ensure the settings.yaml exists in the config_profiles folder."""

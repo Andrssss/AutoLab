@@ -1,46 +1,42 @@
-# step_capture_widget.py
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QSlider, QHBoxLayout, QFileDialog
 from PyQt5.QtCore import Qt, pyqtSignal
-from Image_processing.bac_detector import BacteriaDetector
 from Image_processing.petri_detector import PetriDetector
 import cv2
 
 class StepCaptureWidget(QWidget):
     go_to_start = pyqtSignal()
 
-    def __init__(self, image_path=None, parent=None):
+    def __init__(self, context, image_path=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Bacterial Analyzer")
 
-        # Attribútumok
+        self.context = context
         self.image_path = image_path
         self.original_image = None
         self.processed_image = None
         self.petri_mask = None
         self.petri_detector = PetriDetector()
-        self.bac_detector = BacteriaDetector()
-
-        self.hue_ranges = [(0, 30), (30, 90), (90, 150), (150, 179)]
-        self.size_ranges = [(100, 500), (500, 1500), (1500, 99999)]
 
         self.initUI()
+
         if self.image_path:
             self.load_and_process_image(self.image_path)
-
-
 
     def initUI(self):
         layout = QVBoxLayout()
 
+        # Image display
         self.image_label = QLabel("Loading image...")
         self.image_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.image_label)
 
+        # Open image button
         btn_open = QPushButton("Open Image")
         btn_open.clicked.connect(self.open_image)
         layout.addWidget(btn_open)
 
+        # Petri detection sliders
         circle_layout = QHBoxLayout()
         self.circle_blur_slider = QSlider(Qt.Horizontal)
         self.circle_blur_slider.setMinimum(1)
@@ -62,35 +58,7 @@ class StepCaptureWidget(QWidget):
         circle_layout.addWidget(self.circle_slider)
         layout.addLayout(circle_layout)
 
-        size_layout = QHBoxLayout()
-        self.min_size_slider = QSlider(Qt.Horizontal)
-        self.min_size_slider.setMinimum(10)
-        self.min_size_slider.setMaximum(3000)
-        self.min_size_slider.setValue(100)
-        self.min_size_slider.valueChanged.connect(self.update_bac_params)
-        size_layout.addWidget(QLabel("Min size"))
-        size_layout.addWidget(self.min_size_slider)
-
-        self.max_size_slider = QSlider(Qt.Horizontal)
-        self.max_size_slider.setMinimum(10)
-        self.max_size_slider.setMaximum(10000)
-        self.max_size_slider.setValue(1500)
-        self.max_size_slider.valueChanged.connect(self.update_bac_params)
-        size_layout.addWidget(QLabel("Max size"))
-        size_layout.addWidget(self.max_size_slider)
-        layout.addLayout(size_layout)
-
-        self.split_thresh_slider = QSlider(Qt.Horizontal)
-        self.split_thresh_slider.setMinimum(10)
-        self.split_thresh_slider.setMaximum(1000)
-        self.split_thresh_slider.setValue(1)
-        self.split_thresh_slider.valueChanged.connect(self.update_bac_params)
-
-        split_layout = QHBoxLayout()
-        split_layout.addWidget(QLabel("Split Sensitivity"))
-        split_layout.addWidget(self.split_thresh_slider)
-        layout.addLayout(split_layout)
-
+        # Navigation buttons
         nav_layout = QHBoxLayout()
         self.prev_btn = QPushButton("◀ Previous")
         self.prev_btn.clicked.connect(self.go_to_start.emit)
@@ -98,18 +66,20 @@ class StepCaptureWidget(QWidget):
         nav_layout.addWidget(self.prev_btn)
         nav_layout.addWidget(self.next_btn)
         layout.addLayout(nav_layout)
+
         self.setLayout(layout)
         self.layout = layout
 
-
     def open_image(self):
-            default_dir = r"C:\\Users\\Public\\Pictures\\MyCaptures"
-            file_path, _ = QFileDialog.getOpenFileName(self, "Select image", default_dir, "Images (*.png *.xpm *.jpg *.bmp)")
-            if file_path:
-                self.image_path = file_path
-                self.original_image = cv2.imread(file_path)
-                self.petri_mask = None
-                self.update_petri_params(force_detect=False)
+        default_dir = r"C:\\Users\\Public\\Pictures\\MyCaptures"
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select image", default_dir, "Images (*.png *.xpm *.jpg *.bmp)"
+        )
+        if file_path:
+            self.image_path = file_path
+            self.original_image = cv2.imread(file_path)
+            self.petri_mask = None
+            self.update_petri_params(force_detect=True)
 
     def update_petri_params(self, force_detect=False):
         blur = self.circle_blur_slider.value()
@@ -132,35 +102,11 @@ class StepCaptureWidget(QWidget):
                 else:
                     self.petri_mask = petri_mask
 
-            self.update_bac_params()
-
-    def update_bac_params(self):
-        if self.original_image is not None:
-            if self.petri_mask is None:
-                self.display_image(self.original_image)
-            else:
-                min_size = self.min_size_slider.value()
-                max_size = self.max_size_slider.value()
-                split_thresh = self.split_thresh_slider.value()
-
-                self.size_ranges = [(min_size, max_size)]
-                self.bac_detector.set_params(self.hue_ranges, self.size_ranges, split_thresh)
-
-                masked_image = cv2.bitwise_and(self.original_image, self.original_image, mask=self.petri_mask)
-                detected = self.bac_detector.detect(masked_image, self.petri_mask)
-
-                preview = detected.copy()
-                contours, _ = cv2.findContours(self.petri_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cv2.drawContours(preview, contours, -1, (255, 255, 0), 2)
-
-                self.display_image(preview)
-
-    def load_and_process_image(self, path):
-        self.image_path = path
-        self.original_image = cv2.imread(path)
-        if self.original_image is not None:
-            self.petri_mask = None
-            self.update_petri_params(force_detect=False)
+            # Draw petri mask contour on top of original image
+            self.processed_image = self.original_image.copy()
+            contours, _ = cv2.findContours(self.petri_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(self.processed_image, contours, -1, (0, 255, 255), 2)  # Cyan color
+            self.display_image(self.processed_image)
 
     def display_image(self, image):
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -170,8 +116,45 @@ class StepCaptureWidget(QWidget):
         pixmap = QPixmap.fromImage(qt_image).scaled(640, 480, Qt.KeepAspectRatio)
         self.image_label.setPixmap(pixmap)
 
+    def load_and_process_image(self, path):
+        self.image_path = path
+        self.original_image = cv2.imread(path)
+        if self.original_image is not None:
+            self.petri_mask = None
+            self.update_petri_params(force_detect=True)
+
     def get_image(self):
         return self.original_image
 
     def get_mask(self):
         return self.petri_mask
+
+    def save_to_context(self):
+        self.context.image = self.original_image
+        self.context.mask = self.petri_mask
+        self.context.filtered_image = self.processed_image
+
+        # 🟢 Save Petri detection parameters
+        self.context.settings["petri_params"] = {
+            "circle_blur": self.circle_blur_slider.value(),
+            "circle_sensitivity": self.circle_slider.value()
+        }
+
+        self.context.analysis = {
+            "preview_image": self.processed_image,
+            "petri_only": True
+        }
+
+        print("[DEBUG] StepCapture saved Petri detection settings:", self.context.settings["petri_params"])
+
+    def load_from_context(self):
+        petri_params = self.context.settings.get("petri_params", {})
+        self.circle_blur_slider.setValue(petri_params.get("circle_blur", 7))
+        self.circle_slider.setValue(petri_params.get("circle_sensitivity", 30))
+
+        if self.context.image is not None:
+            self.original_image = self.context.image
+        if self.context.mask is not None:
+            self.petri_mask = self.context.mask
+            self.update_petri_params()
+

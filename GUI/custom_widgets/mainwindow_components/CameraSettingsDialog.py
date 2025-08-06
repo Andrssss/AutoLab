@@ -6,6 +6,8 @@ from File_managers import config_manager  # ne töröld ki, kell
 import platform
 from functools import partial
 
+from GUI.custom_widgets.mainwindow_components.PixelPerCmMeasureDialog import PixelPerCmMeasureDialog
+
 
 class CameraSettingsDialog(QDialog):
     def __init__(self, camera_index, zoom_level, zoom_offset_x, zoom_offset_y, blur_enabled, gain, exposure,
@@ -94,9 +96,6 @@ class CameraSettingsDialog(QDialog):
         expo_display.addWidget(self.label_expo)
         layout.addLayout(expo_display)
 
-
-
-
         # Pan nyilak
         v_pan = QVBoxLayout()
         h_pan = QHBoxLayout()
@@ -107,7 +106,8 @@ class CameraSettingsDialog(QDialog):
         v_pan.addWidget(self.btn_down, alignment=Qt.AlignCenter)
         layout.addLayout(v_pan)
 
-
+        self.btn_measure_cm = QPushButton("Mérj 1 cm-t")
+        layout.addWidget(self.btn_measure_cm)
 
         self.setLayout(layout)
 
@@ -186,6 +186,9 @@ class CameraSettingsDialog(QDialog):
         self.btn_focus_up.clicked.connect(self.increase_focus)
         self.btn_focus_down.clicked.connect(self.decrease_focus)
         self.btn_reset.clicked.connect(self.reset_to_defaults)
+
+        # cm mérő
+        self.btn_measure_cm.clicked.connect(self.launch_measure_dialog)
 
     def update_frame(self):
         if self.cap and self.cap.isOpened():
@@ -318,6 +321,24 @@ class CameraSettingsDialog(QDialog):
             self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
         self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
 
+    def launch_measure_dialog(self):
+        if self.current_frame is None:
+            print("[HIBA] Nincs elérhető képkocka a méréshez.")
+            return
+        frame_copy = self.current_frame.copy()
+        dialog = PixelPerCmMeasureDialog(frame_copy, self)
+        dialog.setModal(True)  # 👈 Ezt hozzáadjuk
+        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)  # 👈 Látható lesz
+        dialog.resize(800, 600)  # 👈 Biztosítjuk, hogy nagy méretben jelenjen meg
+        dialog.show()  # 👈 Megmutatjuk az ablakot
+        dialog.exec_()
+
+        if dialog.result() == QDialog.Accepted:
+            pixel_per_cm = dialog.get_pixel_per_cm()
+            if pixel_per_cm:
+                self.pixel_per_cm = pixel_per_cm
+                print(f"[MENTÉS] 1 cm = {pixel_per_cm:.2f} px")
+
     def closeEvent(self, event):
         self.timer.stop()
         if self.cap:
@@ -330,8 +351,10 @@ class CameraSettingsDialog(QDialog):
             "offset_y": self.zoom_offset_y,
             "blur": self.blur_enabled,
             "gain": self.gain,
-            "exposure": self.exposure
+            "exposure": self.exposure,
+            "pixel_per_cm": getattr(self, "pixel_per_cm", None)  # új mező
         }
+
         config_manager.save_camera_settings(self.camera_index, settings_data)
         self.result = settings_data
 
