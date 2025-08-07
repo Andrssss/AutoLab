@@ -17,7 +17,6 @@ class StepCaptureWidget(QWidget):
         self.processed_image = None
         self.petri_mask = None
         self.petri_detector = PetriDetector()
-
         self.initUI()
 
         if self.image_path:

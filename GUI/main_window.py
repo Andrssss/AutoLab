@@ -10,6 +10,7 @@ from GUI.custom_widgets.openable_widgets.device_settings_widget import SettingsW
 from GUI.custom_widgets.openable_widgets.manual_control_widget import ManualControlWidget
 from GUI.custom_widgets.openable_widgets.marlin_config_window import MarlinConfigWindow  # Importálás a külön fájlból
 from File_managers.config_manager import ensure_settings_yaml_exists
+from .custom_widgets.mainwindow_components.CommandSender import CommandSender
 
 
 class MainWindow(QMainWindow):
@@ -18,6 +19,8 @@ class MainWindow(QMainWindow):
         ensure_settings_yaml_exists()  # ✅ Ensure settings file is present
         self.g_control = g_control
         self.locks = locks
+        self.command_sender = CommandSender(self.g_control)
+        self.command_sender.start()
 
         self.setWindowTitle("Main Window with Menu Bar")
         self.setGeometry(100, 100, 1200, 600)
@@ -97,7 +100,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, self.log_dock)
         self.g_control.log_widget = self.log_widget
 
-        self.camera_widget = CameraWidget()
+        self.camera_widget = CameraWidget(self)
         self.camera_dock = CameraDock(self.camera_widget, self.log_widget)
         self.addDockWidget(Qt.RightDockWidgetArea, self.camera_dock)
 
@@ -155,7 +158,7 @@ class MainWindow(QMainWindow):
 
 
     def open_manual_control_dock(self):
-        self.manual_widget = ManualControlWidget(self.g_control,self.log_widget)
+        self.manual_widget = ManualControlWidget(self.g_control, self.log_widget, self.command_sender, self)
         self.manual_dock = QDockWidget("Manual Control", self)
         self.manual_dock.setWidget(self.manual_widget)
 
@@ -214,7 +217,6 @@ class MainWindow(QMainWindow):
                         available.append(i)
 
                     cap.release()
-            available  # Itt állítjuk be
             return available
 
     def closeEvent(self, event):
@@ -228,6 +230,27 @@ class MainWindow(QMainWindow):
                 print(f"[HIBA] Szálak leállítása sikertelen: {e}")
 
         event.accept()
+
+    def set_command_sender(self, new_sender):
+        if hasattr(self, 'command_sender') and self.command_sender:
+            try:
+                if self.command_sender.isRunning():
+                    print("[INFO] Korábbi CommandSender leállítása...")
+                    self.command_sender.stop()
+                    self.command_sender.wait()  # ⬅️ This is CRITICAL
+            except Exception as e:
+                print(f"[HIBA] CommandSender leállításánál hiba: {e}")
+
+        self.command_sender = new_sender
+        if not self.command_sender.isRunning():
+            print("[INFO] Új CommandSender indítása...")
+            self.command_sender.start()
+
+    def get_g_control(self):
+        return self.g_control
+
+    def get_command_sender(self):
+        return self.command_sender
 
 
 

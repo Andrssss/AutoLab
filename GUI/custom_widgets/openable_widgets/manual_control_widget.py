@@ -9,19 +9,22 @@ class ManualControlWidget(QWidget):
     moveCommand = pyqtSignal(str)
     actionCommand = pyqtSignal(str)
 
-    def __init__(self, g_control, log, parent=None):
+    def __init__(self, g_control, log, command_sender, main_window, parent=None):
         super().__init__(parent)
         self.stopped = False  # ⛔ Stop állapot
         self.paused = False
 
         self.log = log
         self.g_control = g_control
+        self.command_sender = command_sender
+        self.main_window = main_window
+
 
         self.status_label = QLabel("Checking connection...")  # 💡 Előbb hozzuk létre
         self.initUI()  # 💡 Csak ezután hívjuk
 
-        self.command_sender = CommandSender(self.g_control)
-        self.command_sender.start()
+        #self.command_sender = CommandSender(self.g_control)
+        #self.command_sender.start()
 
         self.check_connection()  # 💡 Megjelenítés frissítése
 
@@ -211,20 +214,29 @@ class ManualControlWidget(QWidget):
             self.status_label.setText("❌ No connection")
 
     def reconnect(self):
-        # 🔁 Leállítjuk a meglévő szálat, ha fut
+        # 1️⃣ Stop old CommandSender if it's running
         if self.command_sender and self.command_sender.isRunning():
-            print("[INFO] Előző CommandSender leállítása...")
+            print("[INFO] Stopping previous CommandSender...")
             self.command_sender.stop()
+            self.command_sender.wait()  # Wait for it to stop
 
-        print("[INFO] Trying to connect...")
+        # 2️⃣ Try to reconnect the g_control
+        print("[INFO] Attempting to reconnect to device...")
         self.g_control.autoconnect()
+
+        # 3️⃣ Create and start a new CommandSender
+        new_sender = CommandSender(self.g_control)
+        new_sender.start()
+        print("[INFO] New CommandSender started.")
+
+        # 4️⃣ Update self + inform main window
+        self.command_sender = new_sender
+        if hasattr(self, "main_window") and self.main_window:
+            self.main_window.set_command_sender(new_sender)
+            print("[INFO] CommandSender reference updated in MainWindow.")
+
+        # 5️⃣ Update connection status on the UI
         self.check_connection()
-
-        # ✅ Új CommandSender indítása
-        self.command_sender = CommandSender(self.g_control)
-        self.command_sender.start()
-
-
 
 
     def send_custom_gcode(self):

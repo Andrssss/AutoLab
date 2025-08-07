@@ -4,6 +4,7 @@ from PyQt5.QtCore import Qt
 import cv2
 
 from File_managers import config_manager
+from File_managers import dish_profile_manager
 
 
 class StepSummaryWidget(QWidget):
@@ -92,6 +93,7 @@ class StepSummaryWidget(QWidget):
 
         self.roi_text.setText("\n".join(text_lines))
 
+
     def try_advance(self):
         self.load_pixel_per_cm_from_config()
         px_per_cm = getattr(self.context, "pixel_per_cm", None)
@@ -103,9 +105,19 @@ class StepSummaryWidget(QWidget):
                 "⚠️ Ehhez a kamerához nincs beállítva, hogy 1 cm hány pixel!\n"
                 "Kérlek, mérd meg előbb a kalibrációs ablakban."
             )
-            return False  #  Fontos: ne lépj tovább!
+            return False
 
-        return True  #  OK, mehet tovább!
+        try:
+            # 🆕 ROI pontok mentése dish_id = 1 alá
+            roi_points = self.context.roi_points or []
+            dish_id = 1
+            dish_profile_manager.save_dish_roi_points(dish_id, roi_points)
+            print(f"[INFO] ROI pontok elmentve dish_id={dish_id}-hez.")
+        except Exception as e:
+            QMessageBox.critical(self, "❌ Hiba", f"[HIBA] A ROI pontok mentése sikertelen:\n{e}")
+            return False
+
+        return True
 
     def open_measure_dialog(self):
         from GUI.custom_widgets.mainwindow_components.PixelPerCmMeasureDialog import PixelPerCmMeasureDialog

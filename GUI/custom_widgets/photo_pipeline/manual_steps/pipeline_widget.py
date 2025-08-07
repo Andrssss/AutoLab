@@ -12,9 +12,10 @@ from GUI.custom_widgets.photo_pipeline.manual_steps.pipeline_context import Pipe
 class PipelineWidget(QWidget):
     pipeline_finished = pyqtSignal()
 
-    def __init__(self, image_path=None):
+    def __init__(self,main_window, image_path=None):
         super().__init__()
         self.image_path = image_path
+        self.main_window = main_window
 
         self.context = PipelineContext()
         self.stack = QStackedWidget()
@@ -39,15 +40,20 @@ class PipelineWidget(QWidget):
         self.load_step(0)  # Load first step
 
     def load_step(self, index):
-        # Clear previous step from stack
+        # Remove previous step widget
         if self.current_step is not None:
             self.stack.removeWidget(self.current_step)
             self.current_step.deleteLater()
             self.current_step = None
 
-        # Instantiate new step widget
         step_class = self.step_classes[index]
-        self.current_step = step_class(context=self.context, image_path=self.image_path)
+
+        # 👇 Conditionally pass main_window only to StepPickingWidget
+        if step_class == StepPickingWidget:
+            self.current_step = step_class(context=self.context, image_path=self.image_path, main_window=self.main_window)
+        else:
+            self.current_step = step_class(context=self.context, image_path=self.image_path)
+
         self.current_step_index = index
 
         self.stack.addWidget(self.current_step)

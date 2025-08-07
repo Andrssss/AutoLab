@@ -51,7 +51,8 @@ class StepROIWidget(QWidget):
         if settings:
             info_lines.append("⚙️ Settings:")
             for key, val in settings.items():
-                info_lines.append(f" - {key}: {val}")
+                if key == "camera_index" or key == "petri_params":
+                    info_lines.append(f" - {key}: {val}")
 
         if self.context.mask is not None:
             info_lines.append("🧪 Petri dish mask: Available")

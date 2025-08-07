@@ -7,10 +7,11 @@ from .auto_steps.step_auto_placeholder import StepAutoPlaceholder
 
 
 class PipelineWidget(QWidget):
-    def __init__(self, image_path=None):
+    def __init__(self, main_window, image_path=None):
         super().__init__()
         self.setWindowTitle("Elemzési Mód Választása")
         self.image_path = image_path
+        self.main_window = main_window
 
         # Stack and layout setup
         self.stack = QStackedWidget()
@@ -35,7 +36,7 @@ class PipelineWidget(QWidget):
         self.auto_step = None
 
     def start_manual_pipeline(self):
-        self.manual_pipeline = ManualPipelineWidget(image_path=self.image_path)
+        self.manual_pipeline = ManualPipelineWidget(self.main_window,image_path=self.image_path)
         self.manual_pipeline.return_to_start_callback = self.return_to_start
         self.manual_pipeline.pipeline_finished.connect(self.close_manual_pipeline)  # 🔄 finish signal
         self.stack.addWidget(self.manual_pipeline)

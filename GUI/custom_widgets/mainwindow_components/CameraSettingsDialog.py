@@ -261,10 +261,12 @@ class CameraSettingsDialog(QDialog):
     def increase_focus(self):
         self.zoom_level = min(self.zoom_level + 0.1, 5.0)
         print(f"[ZOOM] Zoom in → {self.zoom_level:.1f}x")
+        self.invalidate_pixel_per_cm()
 
     def decrease_focus(self):
         self.zoom_level = max(self.zoom_level - 0.1, 1.0)
         print(f"[ZOOM] Zoom out → {self.zoom_level:.1f}x")
+        self.invalidate_pixel_per_cm()
 
 
     def apply_blur(self):
@@ -359,4 +361,20 @@ class CameraSettingsDialog(QDialog):
         self.result = settings_data
 
         event.accept()
+
+    def invalidate_pixel_per_cm(self):
+        from File_managers import config_manager
+
+        print("[INFO] pixel_per_cm érvénytelenítve a zoom miatt")
+        self.pixel_per_cm = None
+
+        # Betöltés, módosítás és mentés a settings.yaml-ban
+        settings = config_manager.load_settings()
+        cam_id = str(self.camera_index)
+
+        if "camera_settings" in settings and cam_id in settings["camera_settings"]:
+            if "pixel_per_cm" in settings["camera_settings"][cam_id]:
+                del settings["camera_settings"][cam_id]["pixel_per_cm"]
+                config_manager.save_settings(settings)
+                print(f"[YAML] pixel_per_cm törölve a kamerához (ID: {cam_id})")
 

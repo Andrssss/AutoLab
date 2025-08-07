@@ -16,11 +16,11 @@ class CameraWidget(QWidget):
     stopPressed = pyqtSignal()
     snapshotPressed = pyqtSignal()
 
-    def __init__(self, camera_index=None, available_cams=None, parent=None):
+    def __init__(self, main_window, camera_index=None, available_cams=None, parent=None):
         super().__init__(parent)
         self.camera_index = camera_index or 0  # vagy 0, ha None
         self.available_cams = available_cams or []
-
+        self.main_window = main_window
         # ⬇️ Itt jön a mentett beállítások betöltése
         from File_managers import config_manager
         camera_settings = config_manager.load_camera_settings(self.camera_index)
@@ -242,7 +242,7 @@ class CameraWidget(QWidget):
             self.open_bacteria_analyzer(filename)
 
     def open_bacteria_analyzer(self, image_path=None):
-        self.analyzer_window = PipelineWidget(image_path)
+        self.analyzer_window = PipelineWidget(self.main_window, image_path)
         self.analyzer_window.show()
     '''
     # The old version 
