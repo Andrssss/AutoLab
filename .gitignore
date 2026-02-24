@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+.env/
+
+# VS Code
+.vscode/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+
+# Random things
+mini.py
+**/debug/
+**/pictures/
+.config_profiles/
+mini.py
+
+
+__pycache__/
+*.pyc
+.idea/
+.git.backup/
