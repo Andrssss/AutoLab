@@ -1,9 +1,9 @@
-# Erre az osztályra azért van szükség, mert különben GUI kifagy
+# This class is needed to prevent GUI freezing.
 
 from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
 
 class CommandSender(QThread):
-    sendCommand = pyqtSignal(str)  # Külsőből hívható, parancsokat vesz át
+    sendCommand = pyqtSignal(str)  # Callable from outside; accepts commands
 
     def __init__(self, g_control):
         super().__init__()
@@ -20,8 +20,8 @@ class CommandSender(QThread):
         while self.running:
             if self.queue:
                 command = self.queue.pop(0)
-                self.g_control.new_command(command) # prioritás ?
-            self.msleep(50)  # kis szünet, hogy ne pörögjön folyamatosan
+                self.g_control.new_command(command) # priority?
+            self.msleep(50)  # short pause to avoid busy looping
 
         print("CommandSender close")
 

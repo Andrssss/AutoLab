@@ -1,7 +1,7 @@
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QSlider, QHBoxLayout,
-    QFileDialog, QRadioButton, QButtonGroup
+    QFileDialog, QRadioButton, QButtonGroup, QGroupBox, QFrame, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from Image_processing.petri_detector import PetriDetector
@@ -15,6 +15,7 @@ class StepCaptureWidget(QWidget):
     def __init__(self, context, image_path=None, log_widget=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Bacterial Analyzer")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.context = context
         self.image_path = image_path
@@ -37,16 +38,28 @@ class StepCaptureWidget(QWidget):
 
     def initUI(self):
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
 
         # Image display
         self.image_label = QLabel("Loading image...")
         self.image_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.image_label)
+        self.image_label.setFrameShape(QFrame.StyledPanel)
+        self.image_label.setMinimumSize(480, 360)
+        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(self.image_label, 1)
+
+        controls_group = QGroupBox("Capture Controls")
+        controls_layout = QVBoxLayout()
+        controls_layout.setSpacing(8)
 
         # Open image button
+        row_open = QHBoxLayout()
         btn_open = QPushButton("Open Image")
         btn_open.clicked.connect(self.open_image)
-        layout.addWidget(btn_open)
+        row_open.addWidget(btn_open)
+        row_open.addStretch()
+        controls_layout.addLayout(row_open)
 
         # --- Petri shape selector (Round / Rectangle / Auto) ---
         shape_layout = QHBoxLayout()
@@ -70,10 +83,13 @@ class StepCaptureWidget(QWidget):
         shape_layout.addWidget(self.radio_rectangle)
         shape_layout.addWidget(self.radio_auto)
         shape_layout.addStretch()
-        layout.addLayout(shape_layout)
+        controls_layout.addLayout(shape_layout)
 
         # Petri detection sliders
-        circle_layout = QHBoxLayout()
+        circle_layout = QVBoxLayout()
+        circle_layout.setSpacing(6)
+
+        blur_layout = QHBoxLayout()
         self.circle_blur_slider = QSlider(Qt.Horizontal)
         self.circle_blur_slider.setMinimum(1)
         self.circle_blur_slider.setMaximum(31)
@@ -82,9 +98,11 @@ class StepCaptureWidget(QWidget):
         self.circle_blur_slider.setTickPosition(QSlider.TicksBelow)
         self.circle_blur_slider.setToolTip("Gaussian blur kernel size (odd). Higher = smoother.")
         self.circle_blur_slider.valueChanged.connect(self.update_petri_params)
-        circle_layout.addWidget(QLabel("Petri blur"))
-        circle_layout.addWidget(self.circle_blur_slider)
+        blur_layout.addWidget(QLabel("Petri blur"))
+        blur_layout.addWidget(self.circle_blur_slider)
+        circle_layout.addLayout(blur_layout)
 
+        sens_layout = QHBoxLayout()
         self.circle_slider = QSlider(Qt.Horizontal)
         self.circle_slider.setMinimum(10)
         self.circle_slider.setMaximum(100)
@@ -92,18 +110,24 @@ class StepCaptureWidget(QWidget):
         self.circle_slider.setTickPosition(QSlider.TicksBelow)
         self.circle_slider.setToolTip("Detection sensitivity. Higher = stricter edges.")
         self.circle_slider.valueChanged.connect(self.update_petri_params)
-        circle_layout.addWidget(QLabel("Petri sensitivity"))
-        circle_layout.addWidget(self.circle_slider)
-        layout.addLayout(circle_layout)
+        sens_layout.addWidget(QLabel("Petri sensitivity"))
+        sens_layout.addWidget(self.circle_slider)
+        circle_layout.addLayout(sens_layout)
+        controls_layout.addLayout(circle_layout)
 
         # Navigation buttons
         nav_layout = QHBoxLayout()
+        nav_layout.setSpacing(8)
         self.prev_btn = QPushButton("◀ Previous")
         self.prev_btn.clicked.connect(self.go_to_start.emit)
         self.next_btn = QPushButton("Next ▶")
         nav_layout.addWidget(self.prev_btn)
+        nav_layout.addStretch()
         nav_layout.addWidget(self.next_btn)
-        layout.addLayout(nav_layout)
+        controls_layout.addLayout(nav_layout)
+
+        controls_group.setLayout(controls_layout)
+        layout.addWidget(controls_group, 0)
 
         self.setLayout(layout)
         self.layout = layout
@@ -181,7 +205,10 @@ class StepCaptureWidget(QWidget):
         h, w, ch = rgb_image.shape
         bytes_per_line = ch * w
         qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_image).scaled(640, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        content_rect = self.image_label.contentsRect()
+        target_w = max(1, content_rect.width())
+        target_h = max(1, content_rect.height())
+        pixmap = QPixmap.fromImage(qt_image).scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
 
     def load_and_process_image(self, path):

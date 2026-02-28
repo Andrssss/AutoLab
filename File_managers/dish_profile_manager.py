@@ -1,6 +1,7 @@
-# dish_profile_manager.py
+﻿# dish_profile_manager.py
 import yaml
 import os
+import logging
 
 DISH_FILE = os.path.join(os.path.dirname(__file__), '..', 'config_profiles', 'dish_profiles.yaml')
 
@@ -22,7 +23,7 @@ def save_dish_roi_points(dish_id, roi_points):
         data = load_dish_profiles()
         dish_key = str(dish_id)
 
-        # Tuple helyett listát mentsünk, mert a YAML nem szereti a tuple-t
+        # Save lists instead of tuples because YAML handles lists better.
         roi_list = [[int(x), int(y)] for (x, y) in roi_points]
 
         data[dish_key] = {
@@ -30,7 +31,8 @@ def save_dish_roi_points(dish_id, roi_points):
         }
 
         save_dish_profiles(data)
-        print(f"[OK] ROI pontok elmentve dish_profiles.yaml-ba dish_id={dish_id} alatt.")
+        logging.getLogger(__name__).info(f"[OK] ROI points saved to dish_profiles.yaml under dish_id={dish_id}.")
     except Exception as e:
-        print(f"[HIBA] Nem sikerült menteni a ROI pontokat: {e}")
+        logging.getLogger(__name__).error(f"[ERROR] Failed to save ROI points: {e}")
         raise
+

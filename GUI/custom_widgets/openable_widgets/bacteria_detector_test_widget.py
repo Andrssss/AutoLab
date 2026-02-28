@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt
 from Image_processing.BacteriaDetector import BacteriaDetector
+from Image_processing.auto_k import compute_autok_centers
 
 
 class BacteriaDetectorTestWidget(QWidget):
@@ -571,36 +572,15 @@ class BacteriaDetectorTestWidget(QWidget):
         self.run_detection()
 
     def _compute_hs_kmeans_centers(self, image, k=8, valid_mask=None):
-        if image is None:
-            return []
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        H = hsv[:, :, 0].reshape(-1, 1).astype(np.float32)
-        S = hsv[:, :, 1].reshape(-1, 1).astype(np.float32)
-        hs = np.hstack([H, S])
-
-        if valid_mask is not None:
-            vm = valid_mask.reshape(-1)
-            hs = hs[vm]
-            if hs.shape[0] == 0:
-                return []
-
-        # downsample for speed
-        n = hs.shape[0]
-        if n > 50000:
-            idx = np.random.choice(n, 50000, replace=False)
-            sample = hs[idx]
-        else:
-            sample = hs
-
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-        try:
-            _, _, centers = cv2.kmeans(sample.astype(np.float32), k, None, criteria, 10, cv2.KMEANS_PP_CENTERS)
-        except Exception:
-            return []
-
-        centers = centers.astype(int).tolist()
-        centers_t = [(int(c[0]), int(c[1])) for c in centers]
-        return centers_t
+        return compute_autok_centers(
+            image_bgr=image,
+            k=k,
+            valid_mask=valid_mask,
+            rois=None,
+            saturation_min=self.saturation_min,
+            value_min=self.value_min,
+            fallback_to_whole=False,
+        )
 
     def _centers_to_positions(self, image_bgr, centers, valid_mask=None):
         """Approximate image coordinates for HS centers by assigning each pixel to nearest center and

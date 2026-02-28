@@ -1,5 +1,6 @@
-import yaml
+﻿import yaml
 import os
+import logging
 
 # Path to the config_profiles directory (relative to this file)
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config_profiles')
@@ -24,17 +25,17 @@ def update_setting(key, value):
 
 def update_settings(updates: dict):
     settings = load_settings()
-    settings.update(updates)  # több kulcsot is hozzáad/frissít
+    settings.update(updates)  # add/update multiple keys
     save_settings(settings)
 
 
 def save_camera_settings(index, data: dict):
     settings = load_settings()
-    # Biztosítjuk, hogy legyen camera_settings rész
+    # Ensure the camera_settings section exists
     if "camera_settings" not in settings:
         settings["camera_settings"] = {}
     index_str = str(index)
-    # Ha már van bejegyzés ehhez a kamerához, csak frissítsük a mezőket
+    # If this camera already has an entry, only update the fields
     if index_str not in settings["camera_settings"]:
         settings["camera_settings"][index_str] = {}
     settings["camera_settings"][index_str].update(data)
@@ -54,12 +55,11 @@ def ensure_settings_yaml_exists(filepath=SETTINGS_FILE):
         os.makedirs(CONFIG_DIR)
 
     if not os.path.exists(filepath):
-        print(f"[INFO] {filepath} nem található, létrehozás...")
+        logging.getLogger(__name__).info(f"[INFO] {filepath} not found, creating...")
         try:
             with open(filepath, "w") as f:
                 yaml.dump({}, f)
-            print(f"[OK] Üres {filepath} létrehozva.")
+            logging.getLogger(__name__).info(f"[OK] Empty {filepath} created.")
         except Exception as e:
-            print(f"[HIBA] Nem sikerült létrehozni a {filepath} fájlt: {e}")
-    # else:
-        # print(f"[INFO] {filepath} már létezik.")
+            logging.getLogger(__name__).error(f"[ERROR] Failed to create {filepath}: {e}")
+    # else: keep existing settings file

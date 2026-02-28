@@ -108,11 +108,13 @@ class AutoPipelineWidget(QWidget):
             self.load_step(self.current_step_index - 1)
 
     def go_back_to_start(self):
-        print("[DEBUG] go_back_to_start() triggered")
+        if self.log_widget:
+            self.log_widget.append_log("[DEBUG] go_back_to_start() triggered")
         if self.return_to_start_callback:
             self.return_to_start_callback()
         else:
-            print("[ERROR] return_to_start_callback is not set")
+            if self.log_widget:
+                self.log_widget.append_log("[ERROR] return_to_start_callback is not set")
 
     def handle_finished(self):
         self.pipeline_finished.emit()

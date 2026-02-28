@@ -1,8 +1,8 @@
-import cv2
+﻿import cv2
 from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QSlider
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap
-from File_managers import config_manager  # ne töröld ki, kell
+from File_managers import config_manager  # required import
 import platform
 from functools import partial
 
@@ -30,10 +30,10 @@ class CameraSettingsDialog(QDialog):
         self.command_sender = command_sender
 
 
-        self.setWindowTitle("Kamera Beállítások")
+        self.setWindowTitle("Camera Settings")
         self.cap = cv2.VideoCapture(self.camera_index)
         if not self.cap.isOpened():
-            self.log_widget.append_log("[HIBA] Nem sikerült megnyitni a kamerát.")
+            self.log_widget.append_log("[ERROR] CAMERA: Failed to open camera.")
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
@@ -43,16 +43,16 @@ class CameraSettingsDialog(QDialog):
         self.label_preview.setFixedSize(400, 300)
         self.label_preview.setStyleSheet("background-color: black;")
 
-        # Érték kijelzők
+        # Value displays
         self.label_gain = QLabel(f"GAIN: {self.gain:.1f}")
         self.label_expo = QLabel(f"EXPO: {self.exposure:.1f}")
 
         self.btn_reset = QPushButton("Reset")
-        # Lépés 1: UI felépítés
+        # Step 1: build UI
         self._create_buttons()
         self._setup_layout()
 
-        # Lépés 2: Interakciók, időzítők beállítása
+        # Step 2: set interactions and timers
         self._setup_timers_and_connections()
 
         self.timer.start(30)
@@ -68,10 +68,10 @@ class CameraSettingsDialog(QDialog):
         self.btn_expo_up = QPushButton("EXPO +")
         self.btn_expo_down = QPushButton("EXPO -")
 
-        self.btn_left = QPushButton("←")
-        self.btn_right = QPushButton("→")
-        self.btn_up = QPushButton("↑")
-        self.btn_down = QPushButton("↓")
+        self.btn_left = QPushButton("<")
+        self.btn_right = QPushButton(">")
+        self.btn_up = QPushButton("^")
+        self.btn_down = QPushButton("v")
 
     def _setup_layout(self):
         layout = QVBoxLayout()
@@ -105,7 +105,7 @@ class CameraSettingsDialog(QDialog):
         expo_display.addWidget(self.label_expo)
         layout.addLayout(expo_display)
 
-        # Pan nyilak
+        # Pan arrows
         v_pan = QVBoxLayout()
         h_pan = QHBoxLayout()
         v_pan.addWidget(self.btn_up, alignment=Qt.AlignCenter)
@@ -115,7 +115,7 @@ class CameraSettingsDialog(QDialog):
         v_pan.addWidget(self.btn_down, alignment=Qt.AlignCenter)
         layout.addLayout(v_pan)
 
-        # --- LED (D9) vezérlés: fényerő + toggle ---
+        # --- LED (D9) control: brightness + toggle ---
         led_layout = QVBoxLayout()
         row1 = QHBoxLayout()
         lbl_led = QLabel("LED (D9)")
@@ -133,14 +133,14 @@ class CameraSettingsDialog(QDialog):
         self.sld_led.setTickInterval(25)
         self.sld_led.setTickPosition(QSlider.TicksBelow)
         self.sld_led.setValue(self.led_last_pwm)
-        # csak kijelzés közben frissítünk; tényleges küldés egér elengedésre
+        # update display while dragging; send on slider release
         self.sld_led.valueChanged.connect(self.on_led_value_changed)
         self.sld_led.sliderReleased.connect(self.on_led_slider_released)
         self.btn_led_toggle = QPushButton("LED: OFF")
         self.btn_led_toggle.setCheckable(True)
         self.btn_led_toggle.setChecked(False)
         self.btn_led_toggle.toggled.connect(self.on_led_toggled)
-        # reflect loaded values in the UI
+        # reflect loaded values in UI
         self.sld_led.setValue(self.led_last_pwm)
         pct = int(round(self.led_last_pwm / 255 * 100))
         self.lbl_led_value.setText(f"{pct}%")
@@ -210,11 +210,11 @@ class CameraSettingsDialog(QDialog):
             "up": QTimer(self),
             "down": QTimer(self)
         }
-        # Timer beállítása és működés hozzárendelés
+        # Timer setup and behavior binding
         for direction in self.pan_timers:
             timer = self.pan_timers[direction]
             timer.setInterval(50)
-            timer.timeout.connect(partial(self.pan_view, direction))  # FIX: direction lezárása
+            timer.timeout.connect(partial(self.pan_view, direction))
 
         self.btn_left.pressed.connect(lambda: self.pan_timers["left"].start())
         self.btn_left.released.connect(lambda: self.pan_timers["left"].stop())
@@ -226,7 +226,7 @@ class CameraSettingsDialog(QDialog):
         self.btn_down.released.connect(lambda: self.pan_timers["down"].stop())
         self.btn_reset.clicked.connect(self.reset_to_defaults)
 
-        # --- Egykattintásos funkciók ---
+        # --- One-click actions ---
         self.btn_blur.clicked.connect(self.apply_blur)
         self.btn_gain_up.clicked.connect(self.increase_gain)
         self.btn_gain_down.clicked.connect(self.decrease_gain)
@@ -236,25 +236,24 @@ class CameraSettingsDialog(QDialog):
         self.btn_focus_down.clicked.connect(self.decrease_focus)
         self.btn_reset.clicked.connect(self.reset_to_defaults)
 
-        # cm mérő
+        # cm measurement
         self.btn_measure_cm.clicked.connect(self.launch_measure_dialog)
 
 
 
     def update_frame(self):
         if self.cap and self.cap.isOpened():
-            self.cap.set(cv2.CAP_PROP_GAIN, self.gain) # Minden egyes képkocka frissítés előtt beállítja a gain értéket
-            ret, frame = self.cap.read() # Lekér egy új képkockát a kamerából.
-            if ret: # ret azt jelzi, sikerült-e olvasni (True vagy False).
+            self.cap.set(cv2.CAP_PROP_GAIN, self.gain) # set gain before each frame refresh
+            ret, frame = self.cap.read() # read a new frame from camera
+            if ret: # indicates whether frame read succeeded (True/False)
                 self.current_frame = frame
                 frame_to_show = self.apply_zoom_and_blur(frame)
-                rgb_image = cv2.cvtColor(frame_to_show, cv2.COLOR_BGR2RGB) # OpenCV alapból BGR színteret használ, de a Qt QImage RGB-t vár. Ez az átalakítás elengedhetetlen.
+                rgb_image = cv2.cvtColor(frame_to_show, cv2.COLOR_BGR2RGB) # OpenCV uses BGR, Qt QImage expects RGB.
                 h, w, ch = rgb_image.shape # height, width, channels
-                bytes_per_line = ch * w # Egy sorban hány byte található.
-                                        # Ez fontos infó a QImage számára, mert tudnia kell, hogy hol ér véget egy sor.
+                bytes_per_line = ch * w # bytes per row for QImage
                 qimg = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
                 pixmap = QPixmap.fromImage(qimg).scaled(self.label_preview.size(), Qt.KeepAspectRatio)
-                self.label_preview.setPixmap(pixmap) # Végül frissíti a QLabelet, hogy mutassa az élő képet.
+                self.label_preview.setPixmap(pixmap) # refresh preview label
 
 
 
@@ -300,7 +299,7 @@ class CameraSettingsDialog(QDialog):
 
         self.label_gain.setText(f"GAIN: {self.gain:.1f}")
         self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
-        self.log_widget.append_log("[RESET] Minden érték alaphelyzetbe állítva.")
+        self.log_widget.append_log("[CAMERA] RESET: All values reset to defaults.")
 
     def apply_blurr(self, frame):
         if self.blur_enabled:
@@ -310,23 +309,23 @@ class CameraSettingsDialog(QDialog):
 
     def increase_focus(self):
         self.zoom_level = min(self.zoom_level + 0.1, 5.0)
-        self.log_widget.append_log(f"[ZOOM] Zoom in → {self.zoom_level:.1f}x")
+        self.log_widget.append_log(f"[CAMERA] ZOOM: Zoom in -> {self.zoom_level:.1f}x")
         self.invalidate_pixel_per_cm()
 
     def decrease_focus(self):
         self.zoom_level = max(self.zoom_level - 0.1, 1.0)
-        self.log_widget.append_log(f"[ZOOM] Zoom out → {self.zoom_level:.1f}x")
+        self.log_widget.append_log(f"[CAMERA] ZOOM: Zoom out -> {self.zoom_level:.1f}x")
         self.invalidate_pixel_per_cm()
 
 
     def apply_blur(self):
         self.blur_enabled = not self.blur_enabled
-        self.log_widget.append_log(f"[BLUR] Blur {'bekapcsolva' if self.blur_enabled else 'kikapcsolva'}")
+        self.log_widget.append_log(f"[CAMERA] BLUR: Blur {'enabled' if self.blur_enabled else 'disabled'}")
 
     def pan_view(self, direction):
         step = 0.05
         if self.zoom_level <= 1.0:
-            self.log_widget.append_log("[INFO] Nem lehet panorámázni alap zoomnál.")
+            self.log_widget.append_log("[CAMERA] INFO: Panning is not available at base zoom.")
             return
 
         if direction == "left":
@@ -343,7 +342,7 @@ class CameraSettingsDialog(QDialog):
         self.gain = min(self.gain + 1.0, 255.0)
         if self.cap:
             self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
-        # A GUI-n megjelenő `QLabel`-t frissíti, hogy lásd, aktuálisan mennyi a gai
+        # Update GUI label to show current gain
         self.label_gain.setText(f"GAIN: {self.gain:.1f}")
 
     def decrease_gain(self):
@@ -357,9 +356,9 @@ class CameraSettingsDialog(QDialog):
         self.exposure = min(self.exposure + 1.0, 13.0)
         if self.cap:
             if platform.system() == "Linux":
-                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # Linuxon 1 a manuális mód
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # on Linux, 1 is manual mode
             else:
-                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Windowson 0.25
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # on Windows
             self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
         self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
 
@@ -375,7 +374,7 @@ class CameraSettingsDialog(QDialog):
 
     def launch_measure_dialog(self):
         if self.current_frame is None:
-            self.log_widget.append_log("[HIBA] Nincs elérhető képkocka a méréshez.")
+            self.log_widget.append_log("[ERROR] CAMERA: No frame available for measurement.")
             return
         frame_copy = self.current_frame.copy()
         dialog = PixelPerCmMeasureDialog(frame_copy, self)
@@ -389,16 +388,16 @@ class CameraSettingsDialog(QDialog):
             pixel_per_cm = dialog.get_pixel_per_cm()
             if pixel_per_cm:
                 self.pixel_per_cm = pixel_per_cm
-                self.log_widget.append_log(f"[MENTÉS] 1 cm = {pixel_per_cm:.2f} px")
+                self.log_widget.append_log(f"[CAMERA] SAVE: 1 cm = {pixel_per_cm:.2f} px")
 
 
     def invalidate_pixel_per_cm(self):
         from File_managers import config_manager
 
-        self.log_widget.append_log("[INFO] pixel_per_cm érvénytelenítve a zoom miatt")
+        self.log_widget.append_log("[CAMERA] INFO: pixel_per_cm invalidated due to zoom")
         self.pixel_per_cm = None
 
-        # Betöltés, módosítás és mentés a settings.yaml-ban
+        # Load, modify, and save in settings.yaml
         settings = config_manager.load_settings()
         cam_id = str(self.camera_index)
 
@@ -406,21 +405,21 @@ class CameraSettingsDialog(QDialog):
             if "pixel_per_cm" in settings["camera_settings"][cam_id]:
                 del settings["camera_settings"][cam_id]["pixel_per_cm"]
                 config_manager.save_settings(settings)
-                self.log_widget.append_log(f"[YAML] pixel_per_cm törölve a kamerához (ID: {cam_id})")
+                self.log_widget.append_log(f"[CAMERA] YAML: pixel_per_cm removed for camera (ID: {cam_id})")
 
 
     def send_fan_pwm(self, s_value: int):
-        """Küld M106 S<0..255> biztonságosan (csak ha csatlakozva)."""
+        """Send M106 S<0..255> safely (only when connected)."""
         s = max(0, min(255, int(s_value)))
         if not self.g_control.connected:
-            self.log_widget.append_log("[HIBA] Gép nincs csatlakoztatva (M106 kihagyva).")
+            self.log_widget.append_log("[ERROR] CAMERA: Machine is not connected (M106 skipped).")
             return
-        cmd = f"M106 S{s}\n" if s > 0 else "M106 S0\n"  # lehetne M107 is OFF-hoz
-        self.log_widget.append_log(f"[LED] {cmd.strip()}")
+        cmd = f"M106 S{s}\n" if s > 0 else "M106 S0\n"  # M107 could also be used for OFF
+        self.log_widget.append_log(f"[CAMERA] LED: {cmd.strip()}")
         self.command_sender.sendCommand.emit(cmd)
 
     def on_led_value_changed(self, val: int):
-        """Kijelző frissítése (nem küld parancsot)."""
+        """Update display only (does not send command)."""
         pct = int(round(val / 255 * 100))
         self.lbl_led_value.setText(f"{pct}%")
 
@@ -430,13 +429,13 @@ class CameraSettingsDialog(QDialog):
         if self.btn_led_toggle.isChecked():
             self.send_fan_pwm(val)
         else:
-            self.log_widget.append_log(f"[LED] új cél PWM eltárolva (OFF állapot): S{val}")
+            self.log_widget.append_log(f"[CAMERA] LED: New target PWM stored (OFF state): S{val}")
 
     def on_led_toggled(self, checked: bool):
-        """Billenőgomb: ON -> utolsó PWM küldése, OFF -> S0."""
+        """Toggle button: ON -> send last PWM, OFF -> S0."""
         self.led_enabled = checked
         if checked:
-            # ha 0-ra volt véletlenül állítva, indítsunk 255-tel
+            # if accidentally set to 0, start with 255
             if self.led_last_pwm == 0:
                 self.led_last_pwm = 255
                 self.sld_led.setValue(255)
@@ -466,3 +465,4 @@ class CameraSettingsDialog(QDialog):
         config_manager.save_camera_settings(self.camera_index, settings_data)
         self.result = settings_data
         event.accept()
+

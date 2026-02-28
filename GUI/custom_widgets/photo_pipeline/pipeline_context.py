@@ -1,10 +1,11 @@
-# GUI/custom_widgets/photo_pipeline/pipeline_context.py
+﻿# GUI/custom_widgets/photo_pipeline/pipeline_context.py
 from File_managers import config_manager
 from Image_processing.BacteriaDetector import BacteriaDetector
 from typing import Any, Dict, List, Optional, Tuple
 import os
 import cv2
 import numpy as np
+import logging
 
 
 class PipelineContext:
@@ -145,7 +146,7 @@ class PipelineContext:
             cam_settings = gs.get("camera_settings", {}).get(str(cam_index), {})
             return cam_settings.get("pixel_per_cm", None)
         except Exception as e:
-            print(f"[HIBA] Nem sikerült betölteni a pixel_per_cm értéket: {e}")
+            logging.getLogger(__name__).error(f"[ERROR] Failed to load pixel_per_cm value: {e}")
             return None
 
     def capture_from_widget(self, w, log=None) -> None:
@@ -211,5 +212,6 @@ class PipelineContext:
         if self.mask is not None:  w.petri_mask = self.mask
         if refresh and hasattr(w, "update_petri_params"):
             w.update_petri_params(force_detect=False)
+
 
 

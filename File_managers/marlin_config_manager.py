@@ -1,5 +1,6 @@
 import yaml
 import os
+import logging
 from Pozitioner_and_Communicater.gcode_presets import DEFAULT_SETTINGS
 
 # Path to the config_profiles directory and marlin_settings.yaml
@@ -13,10 +14,9 @@ def ensure_marlin_settings_exists():
         os.makedirs(CONFIG_DIR)
 
     if not os.path.exists(SETTINGS_PATH):
-        print(f"[INFO] {SETTINGS_PATH} nem található, létrehozás alapértelmezett beállításokkal...")
+        logging.getLogger(__name__).info(f"[INFO] {SETTINGS_PATH} not found, creating with default settings...")
         save_settings(DEFAULT_SETTINGS)
-    # else:
-        # print(f"[INFO] {SETTINGS_PATH} már létezik.")
+    # else: keep existing settings file
 
 
 def load_settings():

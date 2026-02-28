@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QStackedWidget
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QStackedWidget, QSizePolicy
 from PyQt5.QtCore import pyqtSignal, QTimer
 from GUI.custom_widgets.photo_pipeline.manual_steps.step_capture_widget import StepCaptureWidget
 from GUI.custom_widgets.photo_pipeline.manual_steps.step_roi_widget import StepROIWidget
@@ -12,13 +12,17 @@ class PipelineWidget(QWidget):
 
     def __init__(self,main_window, image_path,log_widget):
         super().__init__()
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.image_path = image_path
         self.main_window = main_window
         self.log_widget = log_widget
 
         self.context = PipelineContext()
         self.stack = QStackedWidget()
+        self.stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         layout.addWidget(self.stack)
         self.setLayout(layout)
 
@@ -65,14 +69,7 @@ class PipelineWidget(QWidget):
 
         if hasattr(self.current_step, "load_from_context"):
             self.current_step.load_from_context()
-        # If pipeline fullscreen mode enabled in context, show the window maximized
-        try:
-            if getattr(self.context, "pipeline_fullscreen", False):
-                win = self.window()
-                if win is not None:
-                    win.showMaximized()
-        except Exception:
-            pass
+        # Keep normal window sizing during step switches (no forced maximize here)
         if hasattr(self.current_step, "next_btn"):
             self.current_step.next_btn.clicked.connect(self._handle_next_clicked)
         if hasattr(self.current_step, "prev_btn"):
@@ -96,21 +93,24 @@ class PipelineWidget(QWidget):
             self.load_step(self.current_step_index - 1)
 
     def go_back_to_start(self):
-        print("[DEBUG] go_back_to_start() triggered")
+        if self.log_widget:
+            self.log_widget.append_log("[DEBUG] go_back_to_start() triggered")
         if self.return_to_start_callback:
             self.return_to_start_callback()
         else:
-            print("[ERROR] return_to_start_callback is not set")
+            if self.log_widget:
+                self.log_widget.append_log("[ERROR] return_to_start_callback is not set")
 
 
     def handle_finished(self):
-        print("[DEBUG] Pipeline finished — váltás a következő lépésre.")
+        if self.log_widget:
+            self.log_widget.append_log("[DEBUG] Pipeline finished - switching to the next step.")
         QTimer.singleShot(0, self.pipeline_finished.emit)
 
     def _handle_next_clicked(self):
-        # Ha az aktuális step tartalmaz try_advance metódust, akkor azt hívjuk meg
+        # If the current step has a try_advance method, call it.
         if hasattr(self.current_step, "try_advance"):
             proceed = self.current_step.try_advance()
             if not proceed:
-                return  # Ne lépj tovább
+                return  # Do not continue
         self.go_next()

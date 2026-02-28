@@ -1,4 +1,4 @@
-import cv2
+﻿import cv2
 from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QPushButton, QHBoxLayout
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt
 class PixelPerCmMeasureDialog(QDialog):
     def __init__(self, image, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("1 cm mérés")
+        self.setWindowTitle("1 cm Measurement")
         self.setMinimumSize(800, 600)
 
         self.image = image
@@ -15,11 +15,11 @@ class PixelPerCmMeasureDialog(QDialog):
         self.end_point = None
         self.pixel_per_cm = None
 
-        # Kép és szöveg
+        # Image and text
         self.label_image = QLabel()
         self.label_image.setAlignment(Qt.AlignCenter)
-        self.label_result = QLabel("Húzz egy 1 cm-es vonalat az egérrel")
-        self.btn_save = QPushButton("Mentés")
+        self.label_result = QLabel("Draw a 1 cm line with the mouse")
+        self.btn_save = QPushButton("Save")
 
         layout = QVBoxLayout()
         layout.addWidget(self.label_image)
@@ -64,13 +64,13 @@ class PixelPerCmMeasureDialog(QDialog):
             x2, y2 = self.end_point
             dist = ((x2 - x1)**2 + (y2 - y1)**2)**0.5
             self.pixel_per_cm = dist
-            self.label_result.setText(f"📏 1 cm = {dist:.2f} pixel")
+            self.label_result.setText(f"1 cm = {dist:.2f} pixel")
 
     def save_and_close(self):
         if self.pixel_per_cm is not None:
             self.accept()
         else:
-            self.label_result.setText("Előbb húzz egy mérővonalat!")
+            self.label_result.setText("Draw a measurement line first!")
 
     def get_image_coords(self, pos):
         label_w = self.label_image.width()
@@ -84,5 +84,8 @@ class PixelPerCmMeasureDialog(QDialog):
         try:
             return float(self.pixel_per_cm)
         except Exception as e:
-            print(f"[HIBA] pixel_per_cm érték nem érvényes: {e}")
+            parent = self.parent()
+            log_widget = getattr(parent, "log_widget", None) if parent is not None else None
+            if log_widget:
+                log_widget.append_log(f"[ERROR] Invalid pixel_per_cm value: {e}")
             return None

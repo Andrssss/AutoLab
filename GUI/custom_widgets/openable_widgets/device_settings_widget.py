@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import serial
 import serial.tools.list_ports
 import cv2
@@ -17,39 +17,38 @@ from File_managers import config_manager
 
 
 class SettingsWidget(QWidget):
-    def __init__(self, g_control, locks, camera_widget,available_cams, parent=None):
+    def __init__(self, g_control, camera_widget, available_cams, parent=None):
         super().__init__(parent)
         self.g_control = g_control
-        #self.locks = locks
         self.camera_widget = camera_widget
         self.camera_widget.pause_camera()
         self.selected_port = None
         self.initUI()
         self.populate_camera_list()
         self.available_cams = available_cams
-        cameraChanged = pyqtSignal(int)  # <- ez a signal fog szólni, ha kamera váltás történik
+        cameraChanged = pyqtSignal(int)  # <- emitted when camera selection changes
 
     def initUI(self):
         layout = QVBoxLayout()
 
-        # Kamera kiválasztás
+        # Camera selection
         self.combo_cameras = QComboBox()
-        layout.addWidget(QLabel("Kamera kiválasztása:"))
+        layout.addWidget(QLabel("Select camera:"))
         layout.addWidget(self.combo_cameras)
 
-        # Egyedi érték
-        layout.addWidget(QLabel("Állítsd be az értéket:"))
+        # Custom value
+        layout.addWidget(QLabel("Set value:"))
         self.input_value = QLineEdit()
-        self.input_value.setPlaceholderText("Pl. új érték")
+        self.input_value.setPlaceholderText("e.g. new value")
         layout.addWidget(self.input_value)
 
-        # USB rész
+        # USB section
         layout.addWidget(QLabel("Connect to device:"))
         btn_layout = QHBoxLayout()
         self.btn_autoconnect = QPushButton("Autoconnect")
 
         self.btn_select = QPushButton("Select")
-        self.btn_select.setMenu(QMenu())  # Menü hozzáadása a gombhoz
+        self.btn_select.setMenu(QMenu())  # attach menu to button
 
         self.btn_connect = QPushButton("Connect")
         btn_layout.addWidget(self.btn_autoconnect)
@@ -57,22 +56,22 @@ class SettingsWidget(QWidget):
         btn_layout.addWidget(self.btn_connect)
         layout.addLayout(btn_layout)
 
-        # Státusz kijelző
+        # Status label
         self.label_status = QLabel("")
         self.label_status.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.label_status)
 
         self.setLayout(layout)
 
-        self.btn_apply = QPushButton("Alkalmaz")
+        self.btn_apply = QPushButton("Apply")
         layout.addWidget(self.btn_apply)
 
-        # Kapcsolások
+        # Connections
         self.btn_apply.clicked.connect(self.emit_value_changed)
         self.btn_autoconnect.clicked.connect(self.autoconnect)
         self.btn_connect.clicked.connect(self.connect_selected_port)
 
-        # Újratölti a portokat, amikor megnyitják a menüt
+        # Reload ports when menu opens
         self.btn_select.menu().aboutToShow.connect(self.populate_port_menu)
 
     def populate_port_menu(self):
@@ -84,7 +83,7 @@ class SettingsWidget(QWidget):
             no_ports_action.setEnabled(False)
             self.btn_select.menu().addAction(no_ports_action)
             self.selected_port = None
-            self.label_status.setText("Port kiválasztása: nincs elérhető")
+            self.label_status.setText("Port selection: none available")
             return
 
         for port in ports:
@@ -92,10 +91,10 @@ class SettingsWidget(QWidget):
             action.triggered.connect(lambda checked, p=port.device: self.set_selected_port(p))
             self.btn_select.menu().addAction(action)
 
-    # Kamera detektálás külön szálon
+    # Camera detection on a separate thread
     def populate_camera_list(self):
         self.combo_cameras.clear()
-        self.combo_cameras.addItem("Kamerák keresése...", -1)
+        self.combo_cameras.addItem("Searching for cameras...", -1)
 
         found = []
         for i in range(5):  
@@ -107,13 +106,13 @@ class SettingsWidget(QWidget):
                         found.append(i)
                     cap.release()
             except Exception as e:
-                print(f"Kamera {i} hibás: {e}")
+                print(f"Camera {i} failed: {e}")
 
         self.on_cameras_scanned(found)
 
     def set_selected_port(self, port_name):
         self.selected_port = port_name
-        self.label_status.setText(f"Kiválasztott port: {self.selected_port}")
+        self.label_status.setText(f"Selected port: {self.selected_port}")
 
     def on_cameras_scanned(self, cameras):
         self.combo_cameras.clear()
@@ -125,13 +124,13 @@ class SettingsWidget(QWidget):
         else:
             self.combo_cameras.addItem("No camera found", -1)
 
-        # Itt már biztonságosan betölthetjük a YAML-t
+        # Safe to load YAML here
         self.load_all_from_yaml()
 
     def emit_value_changed(self):
         self.save_all_to_yaml()
         self.input_value.clear()
-        # Ablak bezárása
+        # Close window
         self.close()
 
     def autoconnect(self):
@@ -139,7 +138,7 @@ class SettingsWidget(QWidget):
         ports = serial.tools.list_ports.comports()
 
         if not ports:
-            self.label_status.setText("Nem található soros eszköz.")
+            self.label_status.setText("No serial device found.")
             return
 
         for port in ports:
@@ -154,22 +153,22 @@ class SettingsWidget(QWidget):
                         self.g_control.ser = ser
                         self.g_control.set_connected(True)
                         self.selected_port = port_name 
-                        self.label_status.setText(f"Sikeres csatlakozás: {port_name} @ {baud} baud")
+                        self.label_status.setText(f"Connected successfully: {port_name} @ {baud} baud")
                         return
                     else:
                         ser.close()
 
                 except Exception as e:
-                    print(f"Hiba: {port_name} @ {baud} baud - {e}")
+                    print(f"Error: {port_name} @ {baud} baud - {e}")
 
-        self.label_status.setText("Nem sikerült csatlakozni egyetlen soros porthoz sem.")
+        self.label_status.setText("Failed to connect to any serial port.")
 
     def show_port_list(self):
         ports = serial.tools.list_ports.comports()
         if not ports:
-            QMessageBox.information(self, "Soros portok", "Nincs elérhető soros port.")
+            QMessageBox.information(self, "Serial ports", "No serial ports available.")
             self.selected_port = None
-            self.label_status.setText("Port kiválasztása: nincs elérhető")
+            self.label_status.setText("Port selection: none available")
             return
 
         self.combo_ports = QComboBox()
@@ -177,11 +176,11 @@ class SettingsWidget(QWidget):
             self.combo_ports.addItem(f"{port.device} - {port.description}", port.device)
 
         self.selected_port = self.combo_ports.itemData(0)
-        self.label_status.setText(f"Kiválasztott port: {self.selected_port}")
+        self.label_status.setText(f"Selected port: {self.selected_port}")
 
     def connect_selected_port(self):
         if not self.selected_port:
-            self.label_status.setText("Nincs kiválasztott port!")
+            self.label_status.setText("No port selected!")
             return
         self.g_control.set_connected(True)
         self.connect_to_port(self.selected_port)
@@ -191,18 +190,15 @@ class SettingsWidget(QWidget):
             baud_rates = [250000, 125000, 500000]
             ser = serial.Serial(port_name, 250000, timeout=1)
 
-            # Frissítjük a meglévő g_control objektumot
+            # Update existing g_control object
             self.g_control.ser = ser
 
-            # Elindítjuk a szálakat a meglévő thread_control-ból
-            #self.locks.gc = self.g_control
-            #self.locks.lock_type = "G-code_lock"
-            #self.locks.start_threads()
+            # Start threads from existing thread control
             self.g_control.set_connected(True)
-            self.label_status.setText(f"Sikeres csatlakozás: {port_name}")
+            self.label_status.setText(f"Connected successfully: {port_name}")
 
         except Exception as e:
-            self.label_status.setText(f"Hiba: {str(e)}")
+            self.label_status.setText(f"Error: {str(e)}")
 
     def save_all_to_yaml(self, filepath="settings.yaml"):
         config_manager.update_settings({
@@ -217,38 +213,39 @@ class SettingsWidget(QWidget):
 
     def load_all_from_yaml(self, filepath="settings.yaml"):
         if not os.path.exists(filepath):
-            print("settings.yaml nem létezik.")
+            print("settings.yaml does not exist.")
             return
 
         try:
             with open(filepath, "r") as file:
                 data = yaml.safe_load(file)
 
-            # Kamera beállítás
+            # Camera setting
             cam_idx = data.get("camera_index", -1)
             if cam_idx in self.available_cams:
                 index = self.combo_cameras.findData(cam_idx)
                 if index != -1:
                     self.combo_cameras.setCurrentIndex(index)
 
-            # Szöveg
+            # Text
             text_val = data.get("text_value", "")
             self.input_value.setText(text_val)
 
-            # Soros port
+            # Serial port
             self.selected_port = data.get("selected_port", None)
             if self.selected_port:
-                self.label_status.setText(f"Korábban kiválasztott port: {self.selected_port}")
+                self.label_status.setText(f"Previously selected port: {self.selected_port}")
 
-            print(f"Beállítások betöltve YAML-ből: {data}")
+            print(f"Settings loaded from YAML: {data}")
 
         except Exception as e:
-            print(f"Hiba a YAML betöltés során: {e}")
+            print(f"Error while loading YAML: {e}")
 
 
 
     def closeEvent(self, event):
-        # Ha az ablakot "X"-szel zárják be, itt NEM mentünk semmit.
-        print("Beállítások ablak bezárva felhasználó által (X), mentés kihagyva.")
+        # If the window is closed via "X", do not save anything here.
+        print("Settings window closed by user (X), save skipped.")
         self.camera_widget.resume_camera()
-        event.accept()  # Engedélyezzük a bezárást
+        event.accept()  # Allow close
+

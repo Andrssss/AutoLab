@@ -1,8 +1,8 @@
-import time
+﻿import time
 
 import cv2, os
 from datetime import datetime
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QSizePolicy
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 import yaml
@@ -29,7 +29,7 @@ class CameraWidget(QWidget):
         self.capture_after_led = False
         self.frames_to_skip = 0
 
-        # A mentett beállítások betöltése
+        # Load saved settings
         from File_managers import config_manager
         camera_settings = config_manager.load_camera_settings(self.camera_index)
         self.zoom_level = camera_settings.get("zoom_level", 1.0)
@@ -49,21 +49,22 @@ class CameraWidget(QWidget):
         self.timer.timeout.connect(self.update_frame)
         self.current_frame = None
         self.camera_index = camera_index
-        self.available_cams = available_cams or []  # üres lista, ha nincs átadva
+        self.available_cams = available_cams or []  # empty list if not provided
         self.initUI()
 
 
     def initUI(self):
         layout = QVBoxLayout()
 
-        # Legördülő lista az elérhető kamerákhoz
+        # Dropdown list for available cameras
         self.combo_cameras = QComboBox()
         self.combo_cameras.currentIndexChanged.connect(self.on_camera_change)
         layout.addWidget(self.combo_cameras)
 
-        # Kamera kép megjelenítése
+        # Camera image display
         self.label_camera = QLabel("Camera Feed")
-        self.label_camera.setFixedSize(300, 200)
+        self.label_camera.setMinimumSize(400, 200)
+        self.label_camera.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.label_camera.setStyleSheet("background-color: black;")
         self.label_camera.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.label_camera)
@@ -74,10 +75,10 @@ class CameraWidget(QWidget):
         self.btn_stop = QPushButton("Stop")
         self.btn_snapshot = QPushButton("Snapshot")
 
-        # beállítás gomb
-        self.btn_settings = QPushButton("⚙️")
+        # settings button
+        self.btn_settings = QPushButton("⚙")
         self.btn_settings.setFixedSize(24, 24)
-        self.btn_settings.setToolTip("Kamera beállítások")
+        self.btn_settings.setToolTip("Camera settings")
         self.btn_settings.setStyleSheet("padding: 0px; margin-left: 4px;")
 
         btn_layout.addWidget(self.btn_play)
@@ -90,14 +91,14 @@ class CameraWidget(QWidget):
         self.btn_snapshot.clicked.connect(self.on_snapshot)
         self.btn_settings.clicked.connect(self.open_camera_settings)
 
-        layout.addLayout(btn_layout)  # hogy látszódjanak a gombok
+        layout.addLayout(btn_layout)  # add buttons to layout
         self.setLayout(layout)
         self.populate_camera_list()
 
     def detect_cameras(self): # -----------------------------------------------------TODO
-        if not self.available_cams:  # Ha üres a lista, akkor feltöltjük
+        if not self.available_cams:  # If list is empty, detect available devices
             available = []
-            # Próbáljunk 5 lehetséges kameraindexet
+            # Try 5 possible camera indexes
             for i in range(5):
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
@@ -116,8 +117,8 @@ class CameraWidget(QWidget):
             self.combo_cameras.addItem(f"Camera {index}", index)
         if self.available_cams:
             self.combo_cameras.setCurrentIndex(0)
-            self.load_camera_index_from_yaml()  # Itt töltjük be yaml-ból
-            self.on_play() # azonnal indítás
+            self.load_camera_index_from_yaml()  # load from YAML here
+            self.on_play() # start immediately
 
     def set_camera(self, index):
         self.camera_index = index
@@ -125,7 +126,7 @@ class CameraWidget(QWidget):
             self.cap.release()
         self.cap = cv2.VideoCapture(index)
 
-        # Töltsük be a kamera indexhez tartozó beállításokat
+        # Load settings for the selected camera index
         camera_settings = config_manager.load_camera_settings(self.camera_index)
         self.zoom_level = camera_settings.get("zoom_level", 1.0)
         self.zoom_offset_x = camera_settings.get("offset_x", 0.0)
@@ -137,7 +138,7 @@ class CameraWidget(QWidget):
         if self.cap and self.cap.isOpened():
             self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
 
-        self.log_widget.append_log(f"[INFO] Kamera {index} beállításai betöltve.")
+        self.log_widget.append_log(f"[INFO] Camera {index} settings loaded.")
 
     def on_play(self):
         current_index = self.combo_cameras.currentData()
@@ -167,15 +168,15 @@ class CameraWidget(QWidget):
         s = cam_set.get("led_pwm", 255)
 
         if not self.g_control.connected:
-            self.log_widget.append_log("[HIBA] Gép nincs csatlakoztatva (M106 kihagyva).")
+            self.log_widget.append_log("[ERROR] Machine is not connected (M106 skipped).")
         else:
             # 1) LED ON (async)
             cmd_on = f"M106 S{s}\n" if s > 0 else "M106 S0\n"
-            self.log_widget.append_log(f"[LED] ON → {cmd_on.strip()}")
+            self.log_widget.append_log(f"[LED] ON -> {cmd_on.strip()}")
             self.command_sender.sendCommand.emit(cmd_on)
 
         # 2) Arm a capture a few frames later so exposure/AE can settle
-        #    (2–3 frames is usually fine at 30 fps: ~66–100 ms)
+        #    (2-3 frames is usually fine at 30 fps: ~66-100 ms)
         self.frames_to_skip = 3
         self.capture_after_led = True
 
@@ -190,7 +191,7 @@ class CameraWidget(QWidget):
             self.resume_camera()
 
             if hasattr(dialog, "result"):
-                # Beállítások átvétele
+                # Apply returned settings
                 self.zoom_level = dialog.result.get("zoom_level", 1.0)
                 self.zoom_offset_x = dialog.result.get("offset_x", 0)
                 self.zoom_offset_y = dialog.result.get("offset_y", 0)
@@ -198,11 +199,11 @@ class CameraWidget(QWidget):
                 self.gain = dialog.result.get("gain", 0.0)
                 self.exposure = dialog.result.get("exposure", -6.0)
 
-                self.log_widget.append_log("[INFO] Kamera beállítások átvéve:")
+                self.log_widget.append_log("[INFO] Camera settings applied:")
                 self.log_widget.append_log(f"Zoom: {self.zoom_level}, Offset X: {self.zoom_offset_x}, Offset Y: {self.zoom_offset_y}, Blur: {self.blur_enabled}")
 
         else:
-            self.log_widget.append_log("Nincs aktív kamera index.")
+            self.log_widget.append_log("No active camera index.")
 
     def update_frame(self):
         if self.cap and self.cap.isOpened():
@@ -228,12 +229,12 @@ class CameraWidget(QWidget):
 
                         # LED OFF
                         self.command_sender.sendCommand.emit("M106 S0\n")
-                        self.log_widget.append_log("[LED] OFF → M106 S0")
+                        self.log_widget.append_log("[LED] OFF -> M106 S0")
 
     def apply_zoom_and_blur(self, frame):
         h, w = frame.shape[:2]
 
-        # Zoomolt kép kivágása
+        # Crop zoomed image
         if self.zoom_level > 1.0:
             new_w, new_h = int(w / self.zoom_level), int(h / self.zoom_level)
 
@@ -247,7 +248,7 @@ class CameraWidget(QWidget):
 
             frame = frame[y1:y2, x1:x2]
 
-        # Blur, ha aktív
+        # Apply blur if enabled
         if self.blur_enabled:
             frame = cv2.GaussianBlur(frame, (15, 15), 0)
 
@@ -265,14 +266,15 @@ class CameraWidget(QWidget):
             filename = os.path.join(save_folder, f"capture_cam{self.camera_index}_{timestamp}.jpg")
 
             cv2.imwrite(filename, processed_frame)
-            self.log_widget.append_log(f"Kép elmentve: {filename}")
+            self.log_widget.append_log(f"Image saved: {filename}")
 
-            # Megnyitjuk a képet az elemzőben
+            # Open the image in the analyzer
             self.open_bacteria_analyzer(filename)
 
     def open_bacteria_analyzer(self, image_path=None):
         self.analyzer_window = PipelineWidget(self.main_window, image_path, self.log_widget)
-        self.analyzer_window.show()
+        self.analyzer_window.setWindowState(self.analyzer_window.windowState() & ~Qt.WindowFullScreen)
+        self.analyzer_window.showMaximized()
     '''
     # The old version 
     def open_bacteria_analyzer(self, image_path):
@@ -287,18 +289,18 @@ class CameraWidget(QWidget):
             was_running = self.timer.isActive()
             if was_running:
                 self.on_stop()
-                self.log_widget.append_log(f"Camera {self.camera_index} leállítva.")
+                self.log_widget.append_log(f"Camera {self.camera_index} stopped.")
 
                 self.stopPressed.emit()  # Log jele
             self.set_camera(index)
             if was_running:
                 self.timer.start(30)
-                self.log_widget.append_log(f"Camera {self.camera_index} elindítva.")
+                self.log_widget.append_log(f"Camera {self.camera_index} started.")
                 self.playPressed.emit()  # Log jele
 
     def load_camera_index_from_yaml(self, filepath="settings.yaml"):
         if not os.path.exists(filepath):
-            self.log_widget.append_log("settings.yaml nem található.")
+            self.log_widget.append_log("settings.yaml not found.")
             return
 
         try:
@@ -310,16 +312,16 @@ class CameraWidget(QWidget):
                 idx = self.combo_cameras.findData(index_from_yaml)
                 if idx != -1:
                     self.combo_cameras.setCurrentIndex(idx)
-                    self.log_widget.append_log(f"Kamera index beállítva YAML alapján: {index_from_yaml}")
+                    self.log_widget.append_log(f"Camera index set from YAML: {index_from_yaml}")
             else:
-                self.log_widget.append_log(f"A beolvasott kamera index ({index_from_yaml}) nem elérhető.")
+                self.log_widget.append_log(f"The loaded camera index ({index_from_yaml}) is not available.")
         except Exception as e:
-            self.log_widget.append_log(f"Hiba a settings.yaml olvasásakor: {e}")
+            self.log_widget.append_log(f"Error reading settings.yaml: {e}")
 
     def select_camera_by_index(self, index):
-        # Ha már ez az aktív kamera, semmit ne csináljunk
+        # If this camera is already active, do nothing
         if index == self.camera_index:
-            self.log_widget.append_log(f"Kamera {index} már aktív, nincs váltás.")
+            self.log_widget.append_log(f"Camera {index} is already active, no switch needed.")
             return False
 
         idx = self.combo_cameras.findData(index)
@@ -328,21 +330,22 @@ class CameraWidget(QWidget):
 
             if was_running and self.combo_cameras.setCurrentIndex(idx)!=index:
                 self.on_stop()
-                self.log_widget.append_log(f"Camera {self.camera_index} leállítva külső váltás miatt.")
+                self.log_widget.append_log(f"Camera {self.camera_index} stopped due to external switch.")
                 self.stopPressed.emit()
 
-            self.combo_cameras.setCurrentIndex(idx)  # Ez kiváltja a váltást
+            self.combo_cameras.setCurrentIndex(idx)  # triggers the switch
             self.on_play()
             self.playPressed.emit()
             return True
         else:
-            self.log_widget.append_log(f"Camera index {index} nem található a listában.")
+            self.log_widget.append_log(f"Camera index {index} is not in the list.")
             return False
 
     def pause_camera(self):
-        self.log_widget.append_log("[INFO] Kamera ideiglenesen leállítva a settings miatt.")
+        self.log_widget.append_log("[INFO] Camera temporarily stopped for settings.")
         self.on_stop()
 
     def resume_camera(self):
-        self.log_widget.append_log("[INFO] Kamera újraindítása beállítás után.")
-        self.on_play()  # ugyanazzal az indexszel újraindítjuk
+        self.log_widget.append_log("[INFO] Restarting camera after settings.")
+        self.on_play()  # restart with same index
+

@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QSlider
+﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QSlider
 from PyQt5.QtCore import pyqtSignal, QTimer
 from PyQt5.QtCore import Qt
 import time
@@ -7,14 +7,13 @@ import re
 
 
 class ManualControlWidget(QWidget):
-    moveCommand = pyqtSignal(str)
     actionCommand = pyqtSignal(str)
 
     def __init__(self, g_control, log_widget, command_sender, main_window, parent=None):
         super().__init__(parent)
-        self.stopped = False  # Stop állapot
+        self.stopped = False  # Stop state
         self.paused = False
-        self.led_last_pwm = 255  # legutóbbi fényerő (0..255)
+        self.led_last_pwm = 255  # last brightness value (0..255)
 
         self.log_widget = log_widget
         self.g_control = g_control
@@ -27,20 +26,20 @@ class ManualControlWidget(QWidget):
 
     def initUI(self):
         layout = QVBoxLayout()
-        # Állapot kijelzés felül
+        # Status display at the top
         status_layout = QHBoxLayout()
         layout.addWidget(self.status_label)
-        btn_reconnect = QPushButton("Reconnect")
-        btn_reconnect.clicked.connect(self.reconnect)
-        status_layout.addWidget(btn_reconnect)
+        self.btn_reconnect = QPushButton("Reconnect")
+        self.btn_reconnect.clicked.connect(self.reconnect)
+        status_layout.addWidget(self.btn_reconnect)
         layout.addLayout(status_layout)
 
-        # Konfiguráció lekérdezése gomb
+        # Query configuration button
         btn_check_config = QPushButton("Check Config")
         btn_check_config.clicked.connect(self.query_config)
         layout.addWidget(btn_check_config)
 
-        # Mozgatási időzítők
+        # Movement timers
         self.timers = {
             "up": QTimer(self),
             "down": QTimer(self),
@@ -49,18 +48,18 @@ class ManualControlWidget(QWidget):
         }
 
 
-        # Iránygombok
+        # Direction buttons
         dir_layout = QVBoxLayout()
-        up = QPushButton("↑")
-        down = QPushButton("↓")
-        left = QPushButton("←")
-        right = QPushButton("→")
+        up = QPushButton("^")
+        down = QPushButton("v")
+        left = QPushButton("<")
+        right = QPushButton(">")
         self.timers["up"].timeout.connect(lambda: self.send_move_command("up"))
         self.timers["down"].timeout.connect(lambda: self.send_move_command("down"))
         self.timers["left"].timeout.connect(lambda: self.send_move_command("left"))
         self.timers["right"].timeout.connect(lambda: self.send_move_command("right"))
         for timer in self.timers.values():
-            timer.setInterval(250)  # 100ms-onta mozgat
+            timer.setInterval(250)  # move every 250ms
         up.pressed.connect(self.timers["up"].start)
         up.released.connect(self.timers["up"].stop)
         down.pressed.connect(self.timers["down"].start)
@@ -87,7 +86,7 @@ class ManualControlWidget(QWidget):
         arrow_grid.addLayout(arrow_row_bot)
         layout.addLayout(arrow_grid)
 
-        # IN/OUT gombok
+        # IN/OUT buttons
         in_out_layout = QVBoxLayout()
         btn_in = QPushButton("IN")
         btn_out = QPushButton("OUT")
@@ -97,7 +96,7 @@ class ManualControlWidget(QWidget):
         btn_out.clicked.connect(lambda: self.actionCommand.emit("out"))
         layout.addLayout(in_out_layout)
 
-        # Start/Stop legalul
+        # Start/Stop at the bottom
         bottom_layout = QHBoxLayout()
         btn_start = QPushButton("Start")
         btn_pause = QPushButton("Pause")
@@ -111,17 +110,17 @@ class ManualControlWidget(QWidget):
         btn_stop.clicked.connect(self.emergency_stop)
         layout.addLayout(bottom_layout)
 
-        # Save gomb
+        # Save button
         btn_save = QPushButton("Save")
         btn_save.clicked.connect(lambda: self.actionCommand.emit("save"))
         layout.addWidget(btn_save)
 
-        # Home gomb
+        # Home button
         btn_home = QPushButton("Home")
         btn_home.clicked.connect(self.send_home_command)
         layout.addWidget(btn_home)
 
-        # --- LED (D9) vezérlés: fényerő + toggle ---
+        # --- LED (D9) control: brightness + toggle ---
         led_layout = QVBoxLayout()
         row1 = QHBoxLayout()
         lbl_led = QLabel("LED (D9)")
@@ -139,7 +138,7 @@ class ManualControlWidget(QWidget):
         self.sld_led.setTickInterval(25)
         self.sld_led.setTickPosition(QSlider.TicksBelow)
         self.sld_led.setValue(self.led_last_pwm)
-        # csak kijelzés közben frissítünk; tényleges küldés egér elengedésre
+        # update display while dragging; send on mouse release
         self.sld_led.valueChanged.connect(self.on_led_value_changed)
         self.sld_led.sliderReleased.connect(self.on_led_slider_released)
         self.btn_led_toggle = QPushButton("LED: OFF")
@@ -152,10 +151,10 @@ class ManualControlWidget(QWidget):
         layout.addLayout(led_layout)
 
 
-        # --- Kézi G-code beírás ---
+        # --- Manual G-code input ---
         gcode_input_layout = QHBoxLayout()
         self.gcode_input = QLineEdit()
-        self.gcode_input.setPlaceholderText("G-code parancs pl. G28, M114...")
+        self.gcode_input.setPlaceholderText("G-code command e.g. G28, M114...")
         self.btn_send_gcode = QPushButton("Send")
         self.btn_send_gcode.clicked.connect(self.send_custom_gcode)
         gcode_input_layout.addWidget(self.gcode_input)
@@ -166,15 +165,15 @@ class ManualControlWidget(QWidget):
 
 
     def on_start(self):
-        self.log_widget.append_log("[INFO] Start gomb megnyomva")
+        self.log_widget.append_log("[CONTROL_CMD] Start requested -> sending M24 (resume print)")
         self.stopped = False
         if self.paused:
-            self.command_sender.sendCommand.emit("M24\n") # Folytatás parancs
+            self.command_sender.sendCommand.emit("M24\n") # Resume command
             self.paused = False
 
     def on_pause(self):
-        self.log_widget.append_log("[INFO] Pause gomb megnyomva")
-        self.command_sender.sendCommand.emit("M0\n")  # Általános stop/szünet
+        self.log_widget.append_log("[CONTROL_CMD] Pause requested -> sending M0 (pause/stop)")
+        self.command_sender.sendCommand.emit("M0\n")  # General stop/pause
         self.stopped = True
         self.paused = True
 
@@ -182,7 +181,7 @@ class ManualControlWidget(QWidget):
 
     def send_move_command(self, direction):
         if self.stopped:
-            return  # ne küldjön semmit
+            return  # do not send anything
 
         command = None
         if direction == "up":
@@ -195,31 +194,29 @@ class ManualControlWidget(QWidget):
             command = "G91\nG1 Y-15 F3000\n"      # Y-
 
         if command:
-            self.log_widget.append_log(f"[GCODE] {command.strip()}")
+            log_cmd = " | ".join([p.strip() for p in command.strip().splitlines() if p.strip()])
+            self.log_widget.append_log(f"[GCODE] {log_cmd}")
             self.command_sender.sendCommand.emit(command)
 
     def query_config(self):
         if self.g_control.connected:
-            self.log_widget.append_log("[INFO] Konfiguráció lekérdezése...")
-            # Válaszként a log-ba írás a CommandSender-ből történik
-            self.g_control.send_command("M503\n") # Marlin: M503 kiírja a beállításokat
+            self.log_widget.append_log("[INFO] Querying configuration...")
+            # Response logging is handled by CommandSender
+            self.g_control.send_command("M503\n") # Marlin: M503 prints settings
         else:
-            self.log_widget.append_log("[HIBA] Gép nincs csatlakoztatva konfiguráció lekérdezéséhez.")
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.log_widget.append_log("[INFO] Bal gomb → check_connection()")
-
-            self.check_connection()
-        super().mousePressEvent(event)
+            self.log_widget.append_log("[ERROR] Machine is not connected for configuration query.")
 
     def check_connection(self):
         ser = getattr(self.g_control, "ser", None)
         if self.g_control.connected and ser:
-            port = getattr(ser, "port", "ismeretlen port")
-            self.status_label.setText(f"✅ {port} - Connected")
+            port = getattr(ser, "port", "unknown port")
+            self.status_label.setText(f"Connected: {port}")
+            if hasattr(self, "btn_reconnect"):
+                self.btn_reconnect.setText("Reconnect")
         else:
-            self.status_label.setText("❌ No connection")
+            self.status_label.setText("X - No connection")
+            if hasattr(self, "btn_reconnect"):
+                self.btn_reconnect.setText("Connect")
 
     def reconnect(self):
         # 1. Stop old CommandSender if it's running
@@ -255,17 +252,17 @@ class ManualControlWidget(QWidget):
             return
 
         if not self.g_control.connected:
-            self.log_widget.append_log("[HIBA] Gép nincs csatlakoztatva.")
+            self.log_widget.append_log("[ERROR] Machine is not connected.")
 
             return
 
-        # Split minden új G/M/T parancs előtt (betűt megtartjuk)
+        # Split before each new G/M/T command (keep the letter)
         commands = [c.strip() for c in re.split(r'(?=[GMT]\d+)', gcode, flags=re.I) if c.strip()]
 
         for cmd in commands:
             if not cmd.endswith('\n'):
                 cmd += '\n'
-            self.log_widget.append_log(f"[CUSTOM GCODE → QUEUE] {cmd.strip()}")
+            self.log_widget.append_log(f"[CUSTOM GCODE -> QUEUE] {cmd.strip()}")
 
             self.command_sender.sendCommand.emit(cmd)
 
@@ -274,61 +271,61 @@ class ManualControlWidget(QWidget):
 
 
     def emergency_stop(self):
-        self.log_widget.append_log("[VÉSZLEÁLLÍTÁS] A gép azonnali leállítása!")
+        self.log_widget.append_log("[EMERGENCY STOP] Immediate machine stop!")
 
-        # self.stopped = True --> elég csak RAMPS-ot resetelni
-        self.command_sender.sendCommand.emit("M112\n")  # vészleállítás
-        self.log_widget.append_log("[VÉSZLEÁLLÍTÁS] Nyomd meg RAMPS-on a reset gombot !")
+        # self.stopped = True --> usually resetting RAMPS is enough
+        self.command_sender.sendCommand.emit("M112\n")  # emergency stop
+        self.log_widget.append_log("[EMERGENCY STOP] Press the reset button on RAMPS!")
         time.sleep(0.2)
         #self.command_sender.sendCommand.emit("M18\n")  # motor off
         #self.command_sender.sendCommand.emit("M84\n")  # minden motor off
         #time.sleep(0.2)
-        # Reset parancs – csak ha firmware engedi ---> nem engedi
+        # Reset command - only if firmware allows it (currently it does not)
         # self.command_sender.sendCommand.emit("M999\n")
-        # self.log_widget.append_log("[INFO] Reset (M999) parancs elküldve a firmware-nek.")
+        # self.log_widget.append_log("[INFO] Reset (M999) command sent to firmware.")
 
     def send_home_command(self):
         self.log_widget.append_log("[GCODE] G28")
         self.command_sender.sendCommand.emit("G28\n")
 
     def closeEvent(self, event):
-        # Ha az ablakot "X"-szel zárják be, itt NEM mentünk semmit.
-        self.log_widget.append_log("Manula control ablak bezárva felhasználó által (X), mentés kihagyva.")
-        event.accept()  # Engedélyezzük a bezárást
+        # If the window is closed with "X", do not save anything here.
+        self.log_widget.append_log("Manual control window closed by user (X), save skipped.")
+        event.accept()  # Allow close
 
 
 
     def send_fan_pwm(self, s_value: int):
-        """Küld M106 S<0..255> biztonságosan (csak ha csatlakozva)."""
+        """Send M106 S<0..255> safely (only when connected)."""
         s = max(0, min(255, int(s_value)))
         if not self.g_control.connected:
-            self.log_widget.append_log("[HIBA] Gép nincs csatlakoztatva (M106 kihagyva).")
+            self.log_widget.append_log("[ERROR] Machine is not connected (M106 skipped).")
 
             return
-        cmd = f"M106 S{s}\n" if s > 0 else "M106 S0\n"  # lehetne M107 is OFF-hoz
+        cmd = f"M106 S{s}\n" if s > 0 else "M106 S0\n"  # M107 could also be used for OFF
         self.log_widget.append_log(f"[LED] {cmd.strip()}")
 
         self.command_sender.sendCommand.emit(cmd)
 
     def on_led_value_changed(self, val: int):
-        """Kijelző frissítése (nem küld parancsot)."""
+        """Update display only (does not send command)."""
         pct = int(round(val / 255 * 100))
         self.lbl_led_value.setText(f"{pct}%")
 
     def on_led_slider_released(self):
-        """Csak egér elengedésekor küldünk M106-ot, ha a LED be van kapcsolva."""
+        """Send M106 only on slider release when LED is enabled."""
         val = self.sld_led.value()
         self.led_last_pwm = val
         if self.btn_led_toggle.isChecked():
             self.send_fan_pwm(val)
         else:
-            # OFF állapotban nem küldünk, csak eltároljuk az új célértéket
-            self.log_widget.append_log(f"[LED] új cél PWM eltárolva (OFF állapot): S{val}")
+            # In OFF state do not send, only store the new target value
+            self.log_widget.append_log(f"[LED] New target PWM stored (OFF state): S{val}")
 
     def on_led_toggled(self, checked: bool):
-        """Billenőgomb: ON -> utolsó PWM küldése, OFF -> S0."""
+        """Toggle button: ON -> send last PWM, OFF -> S0."""
         if checked:
-            # ha 0-ra volt véletlenül állítva, indítsunk 255-tel
+            # if accidentally set to 0, start with 255
             if self.led_last_pwm == 0:
                 self.led_last_pwm = 255
                 self.sld_led.setValue(255)
@@ -337,3 +334,4 @@ class ManualControlWidget(QWidget):
         else:
             self.btn_led_toggle.setText("LED: OFF")
             self.send_fan_pwm(0)
+

@@ -1,4 +1,4 @@
-# GUI/custom_widgets/openable_widgets/motion_calibration_window.py
+﻿# GUI/custom_widgets/openable_widgets/motion_calibration_window.py
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QDoubleSpinBox, QComboBox, QMessageBox, QGroupBox, QFrame, QSizePolicy
@@ -14,7 +14,7 @@ class MotionCalibrationWindow(QWidget):
     """
     def __init__(self, g_control, log_widget=None):
         super().__init__()
-        self.setWindowTitle("Motion Calibration (X/Y) – 2-column")
+        self.setWindowTitle("Motion Calibration (X/Y) - 2-column")
         self.resize(900, 520)
 
         self.g = g_control
@@ -36,7 +36,7 @@ class MotionCalibrationWindow(QWidget):
         root = QVBoxLayout(self)
 
         # GRID with two columns of step cards
-        grid_wrap = QGroupBox("Lépésről lépésre")
+        grid_wrap = QGroupBox("Step by step")
         grid = QGridLayout(grid_wrap)
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
@@ -54,12 +54,12 @@ class MotionCalibrationWindow(QWidget):
         root.addWidget(grid_wrap)
 
         # Advanced quick actions (one compact row)
-        adv = QGroupBox("Haladó – gyors műveletek")
+        adv = QGroupBox("Advanced - quick actions")
         row = QHBoxLayout(adv)
         row.addWidget(self._btn("G28 XY  Home", self._act_g28))
         row.addWidget(self._btn("G92 X0 Y0  XY=0", self._act_g92_xy0))
-        row.addWidget(self._btn("M114  Pozíció", self._act_m114))
-        row.addWidget(self._btn("M503  Aktív beállítások → Log", self._act_m503))
+        row.addWidget(self._btn("M114  Position", self._act_m114))
+        row.addWidget(self._btn("M503  Active settings -> Log", self._act_m503))
         row.addStretch(1)
         root.addWidget(adv)
 
@@ -67,74 +67,74 @@ class MotionCalibrationWindow(QWidget):
 
     # ---------- Step cards ----------
     def _card_step1(self):
-        card = self._card(1, "Motorok ON + Soft Endstops OFF",
-                          "Kapcsold be a steppereket és ideiglenesen kapcsold ki a szoftveres végállásokat.")
+        card = self._card(1, "Motors ON + Soft Endstops OFF",
+                          "Enable steppers and temporarily disable software endstops.")
         lay = card.layout()
         lay.addWidget(self._row([
-            self._btn("M17  Stepperek ON", self._act_m17),
+            self._btn("M17  Steppers ON", self._act_m17),
             self._btn("M211 S0  Soft OFF", self._act_m211_off),
-            self._btn("M400  Vár",         self._act_m400),
+            self._btn("M400  Wait",         self._act_m400),
         ]))
         return card
 
     def _card_step2(self):
-        card = self._card(2, "Kezdő steps/mm (M92)",
-                          "Ha nem tudod, hagyd 100-on; később pontosítjuk a mérés alapján.")
+        card = self._card(2, "Initial steps/mm (M92)",
+                          "If unsure, leave it at 100; refine later from measurements.")
         lay = card.layout()
         g = QGridLayout(); g.setContentsMargins(0,0,0,0)
         g.addWidget(QLabel("X steps/mm"), 0, 0); g.addWidget(self.sp_steps_x, 0, 1)
         g.addWidget(QLabel("Y steps/mm"), 1, 0); g.addWidget(self.sp_steps_y, 1, 1)
         lay.addLayout(g)
-        lay.addWidget(self._btn("Alkalmaz (M92)", self._apply_steps))
+        lay.addWidget(self._btn("Apply (M92)", self._apply_steps))
         return card
 
     def _card_step3(self):
-        card = self._card(3, "Irány- és lépéspróba",
-                          "Relatív módban lépj pár mm-t mindkét irányba. Figyeld, jó-e az irány és nagyjából a skála.")
+        card = self._card(3, "Direction and step test",
+                          "In relative mode move a few mm in both directions. Check direction and rough scale.")
         lay = card.layout()
         g = QGridLayout(); g.setContentsMargins(0,0,0,0)
-        g.addWidget(QLabel("Relatív lépés (mm)"), 0, 0); g.addWidget(self.sp_jog, 0, 1)
-        g.addWidget(QLabel("Feed (mm/perc)"),     1, 0); g.addWidget(self.sp_feed, 1, 1)
+        g.addWidget(QLabel("Relative step (mm)"), 0, 0); g.addWidget(self.sp_jog, 0, 1)
+        g.addWidget(QLabel("Feed (mm/min)"),     1, 0); g.addWidget(self.sp_feed, 1, 1)
         lay.addLayout(g)
         lay.addWidget(self._row([
-            self._btn("X −", lambda: self._jog("X", -self.sp_jog.value())),
+            self._btn("X -", lambda: self._jog("X", -self.sp_jog.value())),
             self._btn("X +", lambda: self._jog("X", +self.sp_jog.value())),
-            self._btn("Y −", lambda: self._jog("Y", -self.sp_jog.value())),
+            self._btn("Y -", lambda: self._jog("Y", -self.sp_jog.value())),
             self._btn("Y +", lambda: self._jog("Y", +self.sp_jog.value())),
-            self._btn("M114  Pozíció", self._act_m114),
+            self._btn("M114  Position", self._act_m114),
         ]))
         return card
 
     def _card_step4(self):
-        card = self._card(4, "Tesztmenet (pl. 100 mm)",
-                          "Válaszd a tengelyt és a parancsolt utat, majd futtasd a mérést.")
+        card = self._card(4, "Test move (e.g. 100 mm)",
+                          "Choose axis and commanded distance, then run the test.")
         lay = card.layout()
         g = QGridLayout(); g.setContentsMargins(0,0,0,0)
         self.cmb_axis.setMaximumWidth(90)
-        g.addWidget(QLabel("Tengely"),      0, 0); g.addWidget(self.cmb_axis, 0, 1)
-        g.addWidget(QLabel("Parancs (mm)"), 1, 0); g.addWidget(self.sp_cmd,   1, 1)
+        g.addWidget(QLabel("Axis"),      0, 0); g.addWidget(self.cmb_axis, 0, 1)
+        g.addWidget(QLabel("Command (mm)"), 1, 0); g.addWidget(self.sp_cmd,   1, 1)
         lay.addLayout(g)
-        lay.addWidget(self._btn("Futtatás (G91/G1)", self._run_move))
+        lay.addWidget(self._btn("Run (G91/G1)", self._run_move))
         return card
 
     def _card_step5(self):
-        card = self._card(5, "Mért érték → új steps/mm",
-                          "Kézzel mérd le a tényleges utat. Képlet: új = régi × parancs / mért.")
+        card = self._card(5, "Measured value -> new steps/mm",
+                          "Measure actual travel manually. Formula: new = old × command / measured.")
         lay = card.layout()
         g = QGridLayout(); g.setContentsMargins(0,0,0,0)
-        g.addWidget(QLabel("Mért (mm)"), 0, 0); g.addWidget(self.sp_meas, 0, 1)
+        g.addWidget(QLabel("Measured (mm)"), 0, 0); g.addWidget(self.sp_meas, 0, 1)
         lay.addLayout(g)
-        lay.addWidget(self._btn("Számol & Alkalmaz (M92 + M500)", self._compute_apply))
+        lay.addWidget(self._btn("Compute & Apply (M92 + M500)", self._compute_apply))
         return card
 
     def _card_step6(self):
-        card = self._card(6, "Mentés + Soft Endstops ON",
-                          "Mentsd EEPROM-ba és kapcsold vissza a védelmet.")
+        card = self._card(6, "Save + Soft Endstops ON",
+                          "Save to EEPROM and enable protection again.")
         lay = card.layout()
         lay.addWidget(self._row([
-            self._btn("M500  Mentés", self._act_m500),
+            self._btn("M500  Save", self._act_m500),
             self._btn("M211 S1  Soft ON", self._act_m211_on),
-            self._btn("M503  Beállítások → Log", self._act_m503),
+            self._btn("M503  Settings -> Log", self._act_m503),
         ]))
         return card
 
@@ -164,7 +164,7 @@ class MotionCalibrationWindow(QWidget):
         commanded = self.sp_cmd.value()
         measured  = self.sp_meas.value()
         if measured <= 0:
-            QMessageBox.warning(self, "Hiba", "A mért érték legyen > 0 mm.")
+            QMessageBox.warning(self, "Error", "Measured value must be > 0 mm.")
             return
         old = self.sp_steps_x.value() if axis == "X" else self.sp_steps_y.value()
         new_steps = old * (commanded / measured)
@@ -172,14 +172,14 @@ class MotionCalibrationWindow(QWidget):
         else:           self.sp_steps_y.setValue(new_steps)
         self._send(f"M92 {axis}{new_steps:.6f}")
         self._send("M500")
-        self._log(f"[CAL] {axis}: régi={old:.6f}, parancs={commanded:.3f}, mért={measured:.3f} → új={new_steps:.6f}")
+        self._log(f"[CAL] {axis}: old={old:.6f}, command={commanded:.3f}, measured={measured:.3f} -> new={new_steps:.6f}")
 
     # ---------- low-level ----------
     def _send(self, gcode):
         if not self.g:
-            QMessageBox.warning(self, "Nincs kapcsolat", "GCodeControl példány hiányzik.")
+            QMessageBox.warning(self, "No connection", "GCodeControl instance is missing.")
             return
-        self._log(f"[CAL] → {gcode}")
+        self._log(f"[CAL] -> {gcode}")
         self.g.new_command(gcode)
 
     def _log(self, msg):
@@ -216,3 +216,4 @@ class MotionCalibrationWindow(QWidget):
     def _act_m114(self):     self._send("M114")
     def _act_g28(self):      self._send("G28 XY")
     def _act_g92_xy0(self):  self._send("G92 X0 Y0")
+

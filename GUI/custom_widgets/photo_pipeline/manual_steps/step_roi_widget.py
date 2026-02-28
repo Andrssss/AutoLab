@@ -1,12 +1,15 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QSlider, QCheckBox, QFileDialog, QSpinBox, QDialog, QDialogButtonBox
+﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QSlider, QCheckBox, QFileDialog, QSpinBox, QDialog, QDialogButtonBox, QGroupBox, QSizePolicy, QScrollArea, QApplication
 from PyQt5.QtGui import QPixmap, QImage, QKeySequence
 from PyQt5.QtCore import Qt, QPoint, QTimer
 import cv2
 import numpy as np
 import math
 import os
+import json
 import yaml
+from datetime import datetime
 from Image_processing.BacteriaDetector import BacteriaDetector
+from Image_processing.auto_k import compute_autok_centers, classify_contour_to_center
 
 class StepROIWidget(QWidget):
     MODE_POINTS = "points"
@@ -14,6 +17,9 @@ class StepROIWidget(QWidget):
 
     def __init__(self, context, image_path=None, log_widget=None, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumSize(960, 620)
+        self._normal_window_sized = False
         self.context = context
         self.log_widget = log_widget
 
@@ -33,80 +39,99 @@ class StepROIWidget(QWidget):
 
         # analyzer drawings (we store contours, not boxes)
         self.detected_contours = []  # list of polygons (list[list[x,y]])
+        self.detected_contour_labels = []  # parallel list: Auto-K class index per contour (or None)
 
         self.selected_point_radius = 12  # size of the selected point
         self.selected_point_halo = 4  # extra white halo thickness around it
         self.unselected_marker_size = 12  # size for the normal cross marker
 
         # --- UI ---
-        # main layout: image left, side panel right
-        main = QHBoxLayout(self)
+        # main layout: content row + bottom navigation row
+        main = QVBoxLayout(self)
+        main.setContentsMargins(8, 8, 8, 8)
+        main.setSpacing(10)
+
+        content = QHBoxLayout()
+        content.setSpacing(10)
 
         # left: image + controls
         left = QVBoxLayout()
+        left.setSpacing(8)
         self.image_label = QLabel("Image not loaded")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setFixedSize(800, 600)
+        self.image_label.setMinimumSize(360, 260)
         self.image_label.setFrameShape(QFrame.StyledPanel)
+        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.image_label.mousePressEvent = self.on_mouse_press
         self.image_label.mouseMoveEvent = self.on_mouse_move
         self.image_label.mouseReleaseEvent = self.on_mouse_release
 
-        self.instructions = QLabel("Mode: POINTS — Left-click add / Right-click remove • Switch mode to AREAS to drag rectangles.")
+        self.instructions = QLabel("Mode: POINTS - Left-click add / Right-click remove. Switch mode to AREAS to draw rectangles.")
         self.instructions.setAlignment(Qt.AlignCenter)
+        self.instructions.setWordWrap(True)
 
         self.info_label = QLabel()
-        self.info_label.setAlignment(Qt.AlignTop)
+        self.info_label.setAlignment(Qt.AlignCenter)
 
         # nav / actions
-        self.prev_btn = QPushButton("◀ Previous")
-        self.next_btn = QPushButton("Next ▶")
+        self.prev_btn = QPushButton("Previous")
+        self.next_btn = QPushButton("Next")
         self.next_btn.clicked.connect(self.on_next_save)
-        self.reset_btn = QPushButton("🧹 Reset")
+        self.reset_btn = QPushButton("Reset")
         self.reset_btn.clicked.connect(self.reset_all)
-        self.clear_points_btn = QPushButton("🗑 Clear Points")
+        self.clear_points_btn = QPushButton("Clear Points")
         self.clear_points_btn.clicked.connect(self.clear_points_only)
 
-        self.btn_mode_points = QPushButton("● Points")
+        self.btn_mode_points = QPushButton("Points")
         self.btn_mode_points.setCheckable(True)
         self.btn_mode_points.setChecked(True)
         self.btn_mode_points.clicked.connect(lambda: self.set_mode(self.MODE_POINTS))
 
-        self.btn_mode_areas = QPushButton("▭ Areas")
+        self.btn_mode_areas = QPushButton("Areas")
         self.btn_mode_areas.setCheckable(True)
         self.btn_mode_areas.clicked.connect(lambda: self.set_mode(self.MODE_AREAS))
 
         mode_layout = QHBoxLayout()
+        mode_layout.setSpacing(6)
         mode_layout.addWidget(self.btn_mode_points)
         mode_layout.addWidget(self.btn_mode_areas)
         mode_layout.addStretch()
         mode_layout.addWidget(self.clear_points_btn)
         mode_layout.addWidget(self.reset_btn)
 
-        nav_layout = QHBoxLayout()
-        nav_layout.addWidget(self.prev_btn)
-        nav_layout.addStretch()
         # (Analyze gombok maradnak itt, ha a kontextusban megvannak)
         self.btn_analyze_rois = QPushButton("X - Analyze Selected ROIs")
         self.btn_analyze_rois.clicked.connect(self.analyze_selected)
         self.btn_analyze_whole = QPushButton("O - Analyze Whole Dish")
         self.btn_analyze_whole.clicked.connect(self.analyze_whole)
-        nav_layout.addWidget(self.btn_analyze_rois)
-        nav_layout.addWidget(self.btn_analyze_whole)
+        self.btn_analyze_rois.setMinimumWidth(0)
+        self.btn_analyze_whole.setMinimumWidth(0)
+
+        analyze_layout = QHBoxLayout()
+        analyze_layout.setSpacing(6)
+        analyze_layout.addStretch()
+        analyze_layout.addWidget(self.btn_analyze_rois)
+        analyze_layout.addWidget(self.btn_analyze_whole)
+        analyze_layout.addStretch()
+
+        nav_layout = QHBoxLayout()
+        nav_layout.setSpacing(6)
+        nav_layout.addWidget(self.prev_btn)
+        nav_layout.addStretch()
         nav_layout.addWidget(self.next_btn)
 
-        left.addWidget(self.image_label)
+        left.addWidget(self.image_label, 1)
         left.addLayout(mode_layout)
+        left.addSpacing(2)
         left.addWidget(self.instructions)
         left.addWidget(self.info_label)
-        left.addLayout(nav_layout)
+        left.addLayout(analyze_layout)
 
         # right: side panel with lists
         right = QVBoxLayout()
+        right.setSpacing(10)
 
         # --- Detector controls ---
-        det_label = QLabel("Bacteria Detector")
-        det_label.setStyleSheet("font-weight: bold;")
         # sliders and checkboxes
         self.slider_num_colors = QSpinBox()
         self.slider_num_colors.setRange(2, 20)
@@ -144,14 +169,14 @@ class StepROIWidget(QWidget):
 
         # connect sliders to debounce
         self.slider_num_colors.valueChanged.connect(self._on_num_colors_value_changed)
-        self.slider_split.valueChanged.connect(lambda _: self._detector_timer.start(250))
-        self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(250))
-        self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(250))
-        self.slider_close.valueChanged.connect(lambda _: self._detector_timer.start(250))
-        self.slider_open.valueChanged.connect(lambda _: self._detector_timer.start(250))
-        self.chk_texture.stateChanged.connect(lambda _: self._detector_timer.start(250))
-        self.chk_edge.stateChanged.connect(lambda _: self._detector_timer.start(250))
-        self.chk_calib.stateChanged.connect(lambda _: self._detector_timer.start(250))
+        self.slider_split.valueChanged.connect(lambda _: self._detector_timer.start(100))
+        self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(100))
+        self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(100))
+        self.slider_close.valueChanged.connect(lambda _: self._detector_timer.start(100))
+        self.slider_open.valueChanged.connect(lambda _: self._detector_timer.start(100))
+        self.chk_texture.stateChanged.connect(lambda _: self._detector_timer.start(100))
+        self.chk_edge.stateChanged.connect(lambda _: self._detector_timer.start(100))
+        self.chk_calib.stateChanged.connect(lambda _: self._detector_timer.start(100))
         # Auto-K button
         self.btn_auto_k = QPushButton("Auto-K")
         self.btn_auto_k.clicked.connect(self._on_autok)
@@ -159,58 +184,78 @@ class StepROIWidget(QWidget):
 
 
         # Areas list
-        lbl_areas = QLabel("Területek (Areas)")
+        lbl_areas = QLabel("Areas")
         self.list_areas = QListWidget()
         self.list_areas.itemSelectionChanged.connect(self._on_area_selected)
         self.list_areas.itemDoubleClicked.connect(self._on_area_double_clicked)
-        self.btn_area_delete = QPushButton("Törlés (Area)")
+        self.btn_area_delete = QPushButton("Delete (Area)")
         self.btn_area_delete.clicked.connect(self._delete_selected_area)
 
         # Points list
-        lbl_points = QLabel("✚ Pontok (Points)")
+        lbl_points = QLabel("Points")
         self.list_points = QListWidget()
         self.list_points.itemSelectionChanged.connect(self._on_point_selected)
         self.list_points.itemDoubleClicked.connect(self._on_point_double_clicked)
-        self.btn_point_delete = QPushButton("Törlés (Point)")
+        self.btn_point_delete = QPushButton("Delete (Point)")
         self.btn_point_delete.clicked.connect(self._delete_selected_point)
 
         # Quick help for deletion
-        hint = QLabel("Tipp: kijelölés után nyomd meg a Delete gombot is működik.")
+        hint = QLabel("Tip: after selecting an item, the Delete key also works.")
         hint.setStyleSheet("color: gray; font-size: 11px;")
 
-        right.addWidget(lbl_areas)
-        right.addWidget(self.list_areas, 1)
-        right.addWidget(self.btn_area_delete)
-        right.addSpacing(8)
-        right.addWidget(lbl_points)
-        right.addWidget(self.list_points, 1)
-        right.addWidget(self.btn_point_delete)
-        right.addSpacing(8)
-        right.addWidget(hint)
+        roi_group = QGroupBox("ROI Lists")
+        roi_layout = QVBoxLayout()
+        roi_layout.setSpacing(6)
+        roi_layout.addWidget(lbl_areas)
+        roi_layout.addWidget(self.list_areas, 1)
+        roi_layout.addWidget(self.btn_area_delete)
+        roi_layout.addSpacing(4)
+        roi_layout.addWidget(lbl_points)
+        roi_layout.addWidget(self.list_points, 1)
+        roi_layout.addWidget(self.btn_point_delete)
+        roi_layout.addWidget(hint)
+        roi_group.setLayout(roi_layout)
 
-        # detector controls placement
-        right.addSpacing(6)
-        right.addWidget(det_label)
-        right.addWidget(QLabel("Num Colors"))
-        right.addWidget(self.slider_num_colors)
-        right.addWidget(self.btn_auto_k)
-        right.addWidget(QLabel("Split Threshold %"))
-        right.addWidget(self.slider_split)
-        right.addWidget(QLabel("Saturation Min"))
-        right.addWidget(self.slider_sat)
-        right.addWidget(QLabel("Value Min"))
-        right.addWidget(self.slider_val)
-        right.addWidget(QLabel("Close Radius"))
-        right.addWidget(self.slider_close)
-        right.addWidget(QLabel("Open Radius"))
-        right.addWidget(self.slider_open)
-        right.addWidget(self.chk_texture)
-        right.addWidget(self.chk_edge)
-        right.addWidget(self.chk_calib)
-        right.addWidget(self.btn_export_csv)
+        detector_group = QGroupBox("Bacteria Detector")
+        detector_layout = QVBoxLayout()
+        detector_layout.setSpacing(6)
+        detector_layout.addWidget(QLabel("Num Colors"))
+        detector_layout.addWidget(self.slider_num_colors)
+        detector_layout.addWidget(self.btn_auto_k)
+        detector_layout.addWidget(QLabel("Split Threshold %"))
+        detector_layout.addWidget(self.slider_split)
+        detector_layout.addWidget(QLabel("Saturation Min"))
+        detector_layout.addWidget(self.slider_sat)
+        detector_layout.addWidget(QLabel("Value Min"))
+        detector_layout.addWidget(self.slider_val)
+        detector_layout.addWidget(QLabel("Close Radius"))
+        detector_layout.addWidget(self.slider_close)
+        detector_layout.addWidget(QLabel("Open Radius"))
+        detector_layout.addWidget(self.slider_open)
+        detector_layout.addWidget(self.chk_texture)
+        detector_layout.addWidget(self.chk_edge)
+        detector_layout.addWidget(self.chk_calib)
+        detector_layout.addWidget(self.btn_export_csv)
+        detector_group.setLayout(detector_layout)
 
-        main.addLayout(left, 3)
-        main.addLayout(right, 1)
+        right.addWidget(roi_group, 2)
+        right.addWidget(detector_group, 3)
+
+        right_panel = QWidget()
+        right_panel.setLayout(right)
+        right_panel.setMinimumWidth(280)
+
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.NoFrame)
+        right_scroll.setWidget(right_panel)
+        right_scroll.setMinimumWidth(280)
+
+        content.addLayout(left, 3)
+        content.addWidget(right_scroll, 1)
+
+        main.addLayout(content, 1)
+        main.addLayout(nav_layout)
 
         self.display_image = None
         self.scaled_display_size = None
@@ -285,8 +330,11 @@ class StepROIWidget(QWidget):
         if getattr(self.context, "image", None) is not None:
             self.display_roi_image()
         else:
-            self.image_label.setText("❌ No image")
+            self.image_label.setText("No image")
         self.update_info()
+
+        # Make the host window large but normal (not fullscreen/maximized)
+        self._ensure_large_normal_window()
 
         # load slider positions from config if available
         self._load_slider_state()
@@ -294,12 +342,37 @@ class StepROIWidget(QWidget):
         # apply initial detector params and run a quick preview
         self._apply_detector_params()
         self._detector_timer.start(10)
-        # respect pipeline fullscreen flag
+        # keep normal in-window sizing (do not force maximize/fullscreen from this step)
+
+    def _ensure_large_normal_window(self):
+        if self._normal_window_sized:
+            return
+        win = self.window()
+        if win is None:
+            return
+        if win.isMaximized() or win.isFullScreen():
+            self._normal_window_sized = True
+            return
+
+        app = QApplication.instance()
+        if app is None:
+            return
+        screen = app.primaryScreen()
+        if screen is None:
+            return
+
+        avail = screen.availableGeometry()
+        target_w = min(avail.width() - 40, max(int(avail.width() * 0.92), 1200))
+        target_h = min(avail.height() - 40, max(int(avail.height() * 0.90), 760))
+        target_w = max(980, target_w)
+        target_h = max(640, target_h)
+
         try:
-            if getattr(self.context, "pipeline_fullscreen", False):
-                win = self.window()
-                if win is not None:
-                    win.showMaximized()
+            win.resize(target_w, target_h)
+            x = avail.x() + (avail.width() - target_w) // 2
+            y = avail.y() + (avail.height() - target_h) // 2
+            win.move(max(avail.x(), x), max(avail.y(), y))
+            self._normal_window_sized = True
         except Exception:
             pass
 
@@ -311,20 +384,9 @@ class StepROIWidget(QWidget):
         # save slider state whenever context is saved
         self._save_slider_state()
 
-    # ---------- rendering ----------
-    def display_roi_image(self):
-        image = self.context.image
-        if image is None:
-            self.image_label.setText("No image to show.")
-            return
-        preview = image.copy()
-        self._apply_mask_outline(preview)
-        self.display_image = preview
-        self.update_image_label()
-
-    def update_image_label(self):
+    def _compose_visualized_image(self):
         if self.display_image is None:
-            return
+            return None
 
         img = self.display_image.copy()
 
@@ -344,13 +406,16 @@ class StepROIWidget(QWidget):
             cv2.rectangle(img, (x, y), (x + w, y + h), (255, 80, 0), 2)
 
         # analyzer contours (blue outlines)
-        for poly in getattr(self, "detected_contours", []):
+        for idx, poly in enumerate(getattr(self, "detected_contours", [])):
             cnt = np.array(poly, dtype=np.int32)
             if cnt.ndim == 2 and len(cnt) >= 3:
-                cv2.polylines(img, [cnt], isClosed=True, color=(255, 0, 0), thickness=2)
+                color = (255, 0, 0)
+                labels = getattr(self, "detected_contour_labels", [])
+                if idx < len(labels) and labels[idx] is not None:
+                    color = self._legend_color(int(labels[idx]))
+                cv2.polylines(img, [cnt], isClosed=True, color=color, thickness=2)
 
         # selected points (red crosses + labels) + highlight selected (filled circle)
-        # selected points (highlight selected with big red dot + white halo)
         for j, (px, py) in enumerate(self.roi_points):
             if j == self.selected_point_idx:
                 # white halo
@@ -375,11 +440,107 @@ class StepROIWidget(QWidget):
             for (mx, my) in merged:
                 cv2.circle(img, (int(mx), int(my)), 5, (0, 200, 0), 2)
 
+        return img
+
+    def _normalize_for_json(self, value):
+        if isinstance(value, (np.integer, )):
+            return int(value)
+        if isinstance(value, (np.floating, )):
+            return float(value)
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, (list, tuple)):
+            return [self._normalize_for_json(v) for v in value]
+        if isinstance(value, dict):
+            return {str(k): self._normalize_for_json(v) for k, v in value.items()}
+        return value
+
+    def _save_analysis_snapshot(self, mode, results_payload=None):
+        """Persist current analyzed preview image + metadata for future comparison."""
+        try:
+            out_dir = getattr(self.context, "output_dir", None) or os.path.join(os.getcwd(), "debug")
+            history_dir = os.path.join(out_dir, "analysis_history")
+            os.makedirs(history_dir, exist_ok=True)
+
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            img_path = getattr(self.context, "image_path", None)
+            base = os.path.splitext(os.path.basename(img_path))[0] if isinstance(img_path, str) and img_path else "frame"
+
+            # Save exactly the currently rendered analysis view (same overlays as widget preview)
+            snap = self._compose_visualized_image()
+            if snap is None and getattr(self.context, "image", None) is not None:
+                snap = self.context.image.copy()
+                self._apply_mask_outline(snap)
+
+            snapshot_rel = None
+            if snap is not None:
+                snapshot_name = f"{base}_{mode}_{ts}.png"
+                snapshot_path = os.path.join(history_dir, snapshot_name)
+                cv2.imwrite(snapshot_path, snap)
+                snapshot_rel = snapshot_name
+
+            autok_centers = getattr(self, "_autok_centers", None)
+            entry = {
+                "timestamp": ts,
+                "mode": mode,
+                "source_image": img_path,
+                "snapshot_file": snapshot_rel,
+                "detector_params": {
+                    "num_colors": int(self.slider_num_colors.value()),
+                    "split_threshold": int(self.slider_split.value()),
+                    "saturation_min": int(self.slider_sat.value()),
+                    "value_min": int(self.slider_val.value()),
+                    "morph_close_radius": int(self.slider_close.value()),
+                    "morph_open_radius": int(self.slider_open.value()),
+                    "use_texture": bool(self.chk_texture.isChecked()),
+                    "use_edge_split": bool(self.chk_edge.isChecked()),
+                    "color_calibration": bool(self.chk_calib.isChecked()),
+                    "autok_centers": self._normalize_for_json(autok_centers) if autok_centers else [],
+                },
+                "roi_areas": self._normalize_for_json(list(self.rois)),
+                "roi_points": self._normalize_for_json(list(self.roi_points)),
+                "detected_contours_count": int(len(getattr(self, "detected_contours", []))),
+                "results": self._normalize_for_json(results_payload or {}),
+            }
+
+            history_log = os.path.join(history_dir, "analysis_history.jsonl")
+            with open(history_log, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+            if self.log_widget:
+                self.log_widget.append_log(f"[SAVE] Analysis snapshot -> {os.path.join(history_dir, snapshot_rel) if snapshot_rel else history_dir}")
+                self.log_widget.append_log(f"[SAVE] Analysis metadata -> {history_log}")
+        except Exception as e:
+            if self.log_widget:
+                self.log_widget.append_log(f"[WARNING] Analysis snapshot save failed: {e}")
+
+    # ---------- rendering ----------
+    def display_roi_image(self):
+        image = self.context.image
+        if image is None:
+            self.image_label.setText("No image to show.")
+            return
+        preview = image.copy()
+        self._apply_mask_outline(preview)
+        self.display_image = preview
+        self.update_image_label()
+
+    def update_image_label(self):
+        if self.display_image is None:
+            return
+
+        img = self._compose_visualized_image()
+        if img is None:
+            return
+
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         qimg = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
+        content_rect = self.image_label.contentsRect()
+        target_w = max(1, content_rect.width())
+        target_h = max(1, content_rect.height())
         pixmap = QPixmap.fromImage(qimg).scaled(
-            self.image_label.width(), self.image_label.height(),
+            target_w, target_h,
             Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.scaled_display_size = pixmap.size()
@@ -388,15 +549,15 @@ class StepROIWidget(QWidget):
         self.update_info()
 
     def update_info(self):
-        txt = f"Areas: {len(self.rois)}   •   ✚ Points: {len(self.roi_points)}"
+        txt = f"Areas: {len(self.rois)} | Points: {len(self.roi_points)}"
         if getattr(self.context, "mask", None) is None:
-            txt += "   •   No Petri mask"
+            txt += " | No Petri mask"
         self.info_label.setText(txt)
 
         if self.mode == self.MODE_POINTS:
-            self.instructions.setText("Mode: POINTS — Bal klikk: pont felvétele • Jobb klikk: legközelebbi pont törlése • Dupla klikk a képen: Analyze selected")
+            self.instructions.setText("Mode: POINTS - Left click: add point | Right click: delete nearest point | Double click image: Analyze selected")
         else:
-            self.instructions.setText("Mode: AREAS — Húzással téglalap • Jobb klikk: legközelebbi area törlése • Dupla klikk a képen: Analyze selected")
+            self.instructions.setText("Mode: AREAS - Drag to draw rectangle | Right click: delete nearest area | Double click image: Analyze selected")
 
     # ---------- list helpers ----------
     def _refresh_roi_lists(self):
@@ -555,6 +716,7 @@ class StepROIWidget(QWidget):
                     self.update_image_label()
                     self._refresh_roi_lists()
                     self.save_to_context()
+                    self._detector_timer.start(50)
 
         if event.type() == event.MouseButtonDblClick:
             self.analyze_selected()
@@ -603,6 +765,7 @@ class StepROIWidget(QWidget):
             self.update_image_label()
             self._refresh_roi_lists()
             self.save_to_context()
+            self._detector_timer.start(50)
 
     # ---------- actions ----------
     def set_mode(self, mode):
@@ -628,6 +791,7 @@ class StepROIWidget(QWidget):
         self.roi_points.clear()
         self.current_rect = None
         self.detected_contours = []
+        self.detected_contour_labels = []
         self.selected_area_idx = -1
         self.selected_point_idx = -1
 
@@ -640,6 +804,7 @@ class StepROIWidget(QWidget):
         self.display_roi_image()
         self._refresh_roi_lists()
         self.save_to_context()
+        self._detector_timer.start(50)
 
     def analyze_selected(self):
         img = getattr(self.context, "image", None)
@@ -651,6 +816,7 @@ class StepROIWidget(QWidget):
         res_list = []
         auto_pts = []
         contours = []
+        contour_labels = []
 
         if hasattr(self.context, "analyze_roi") and callable(self.context.analyze_roi):
             # Ensure context.detector uses current UI params
@@ -662,7 +828,10 @@ class StepROIWidget(QWidget):
                 r = self.context.analyze_roi(img, rect)
                 res_list.append(r)
                 auto_pts.extend(r.get("centers", []))
-                contours.extend([s["contour"] for s in r.get("stats", []) if "contour" in s])
+                for s in r.get("stats", []):
+                    if "contour" in s:
+                        contours.append(s["contour"])
+                        contour_labels.append(self._classify_contour_autok_label(s["contour"]))
         else:
             if self.log_widget:
                 self.log_widget.append_log("[INFO] context.analyze_roi not implemented. Falling back to local detector.")
@@ -671,12 +840,16 @@ class StepROIWidget(QWidget):
                 ov, centers, objs, counts = self._run_detector_on_rect(rect)
                 res_list.append({"overlay": ov, "centers": centers, "stats": objs})
                 auto_pts.extend(centers)
-                contours.extend([s["contour"] for s in objs if "contour" in s])
+                for s in objs:
+                    if "contour" in s:
+                        contours.append(s["contour"])
+                        contour_labels.append(self._classify_contour_autok_label(s["contour"]))
 
         # add detected centers to selected list
         self._append_points_to_selection(auto_pts)
         # remember detected contours
         self.detected_contours = contours
+        self.detected_contour_labels = contour_labels
 
         if hasattr(self.context, "on_analysis_done"):
             self.context.on_analysis_done(res_list)
@@ -689,6 +862,16 @@ class StepROIWidget(QWidget):
         self.save_to_context()
         self._refresh_roi_lists()
         self.update_image_label()
+        self._save_analysis_snapshot(
+            mode="selected_rois",
+            results_payload={
+                "roi_count": len(self.rois),
+                "result_count": len(res_list),
+                "detected_points_added": len(auto_pts),
+                "objects_per_roi": [len(r.get("stats", [])) for r in res_list],
+                "analysis_source": "context.analyze_roi" if (hasattr(self.context, "analyze_roi") and callable(self.context.analyze_roi)) else "local_detector"
+            }
+        )
 
     def analyze_whole(self):
         img = getattr(self.context, "image", None)
@@ -711,6 +894,7 @@ class StepROIWidget(QWidget):
             self._append_points_to_selection(auto_pts)
 
             self.detected_contours = [s["contour"] for s in res.get("stats", []) if "contour" in s]
+            self.detected_contour_labels = [self._classify_contour_autok_label(s["contour"]) for s in res.get("stats", []) if "contour" in s]
 
             if hasattr(self.context, "on_analysis_done"):
                 self.context.on_analysis_done(res)
@@ -723,13 +907,22 @@ class StepROIWidget(QWidget):
             self.save_to_context()
             self._refresh_roi_lists()
             self.update_image_label()
+            self._save_analysis_snapshot(
+                mode="whole_dish",
+                results_payload={
+                    "detected_points_added": len(auto_pts),
+                    "objects_detected": len(res.get("stats", [])),
+                    "analysis_source": "context.analyze_whole"
+                }
+            )
         else:
             # fallback local detector on whole image
             if self.log_widget:
-                self.log_widget.append_log("[INFO] context.analyze_whole not provided — using local detector.")
+                self.log_widget.append_log("[INFO] context.analyze_whole not provided - using local detector.")
             ov, centers, objs, counts = self._run_detector_on_whole()
             self._append_points_to_selection(centers)
             self.detected_contours = [s["contour"] for s in objs if "contour" in s]
+            self.detected_contour_labels = [self._classify_contour_autok_label(s["contour"]) for s in objs if "contour" in s]
             # Show PREVIEW: base image with detected contours (not full overlay)
             img_show = self.context.image.copy()
             self._apply_mask_outline(img_show)
@@ -737,6 +930,14 @@ class StepROIWidget(QWidget):
             self.save_to_context()
             self._refresh_roi_lists()
             self.update_image_label()
+            self._save_analysis_snapshot(
+                mode="whole_dish",
+                results_payload={
+                    "detected_points_added": len(centers),
+                    "objects_detected": len(objs),
+                    "analysis_source": "local_detector"
+                }
+            )
 
     def _append_points_to_selection(self, pts, min_dist_px=8):
         """Append points to roi_points, avoiding near-duplicates."""
@@ -757,7 +958,7 @@ class StepROIWidget(QWidget):
         if hasattr(self, '_autok_centers') and getattr(self, '_autok_centers', None):
             self._on_autok()
             return
-        self._detector_timer.start(250)
+        self._detector_timer.start(100)
 
     def _autok_centers_to_hue_ranges(self, centers, tol=8):
         if not centers:
@@ -840,58 +1041,40 @@ class StepROIWidget(QWidget):
     def _on_detector_params_apply(self):
         # apply params and run a preview on currently visible region (ROIs if present else whole)
         self._apply_detector_params()
+        fresh_contours = []
+        fresh_labels = []
         # run on whole if no ROIs selected, else on ALL ROIs for preview
         if len(self.rois) > 0:
             # preview ALL ROIs - combine results into single display
             display_base = self.context.image.copy()
-            all_centers = []
             
-            for roi_idx, rect in enumerate(self.rois):
+            for rect in self.rois:
                 ov, centers, objs, counts = self._run_detector_on_rect(rect)
-                all_centers.extend(centers)
-                # Draw detected contours from this ROI directly onto the base image
                 for obj in objs:
                     if "contour" in obj:
-                        cnt = np.array(obj["contour"], dtype=np.int32)
-                        if cnt.ndim == 2 and len(cnt) >= 3:
-                            cv2.polylines(display_base, [cnt], isClosed=True, color=(255, 0, 0), thickness=2)
-            
-            # overlay autok centers if available
-            centers_pos = None
-            centers_hs = getattr(self, '_autok_centers', None)
-            if centers_hs:
-                centers_pos = self._centers_to_positions(self.context.image, centers_hs, valid_mask=None)
-            
-            if centers_pos:
-                display_img = display_base.copy()
-                for i, p in enumerate(centers_pos):
-                    if p is None:
-                        continue
-                    cv2.circle(display_img, (int(p[0]), int(p[1])), 6, (0,0,0), -1)
-                    cv2.circle(display_img, (int(p[0]), int(p[1])), 4, self._legend_color(i), -1)
-                    cv2.putText(display_img, f"C{i+1}", (int(p[0]) + 6, int(p[1]) + 3), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
-                self.display_image = display_img
-            else:
-                self.display_image = display_base
+                        fresh_contours.append(obj["contour"])
+                        fresh_labels.append(self._classify_contour_autok_label(obj["contour"]))
+
+            self.display_image = display_base
         else:
             ov, centers, objs, counts = self._run_detector_on_whole()
-            centers_pos = None
-            centers_hs = getattr(self, '_autok_centers', None)
-            if centers_hs:
-                centers_pos = self._centers_to_positions(self.context.image, centers_hs, valid_mask=None)
-            if centers_pos:
-                ov2 = ov.copy()
-                for i, p in enumerate(centers_pos):
-                    if p is None:
-                        continue
-                    cv2.circle(ov2, (int(p[0]), int(p[1])), 6, (0,0,0), -1)
-                    cv2.circle(ov2, (int(p[0]), int(p[1])), 4, self._legend_color(i), -1)
-                    cv2.putText(ov2, f"C{i+1}", (int(p[0]) + 6, int(p[1]) + 3), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
-                self.display_image = ov2
-            else:
-                self.display_image = ov
+            for obj in objs:
+                if "contour" in obj:
+                    fresh_contours.append(obj["contour"])
+                    fresh_labels.append(self._classify_contour_autok_label(obj["contour"]))
+
+            display_base = self.context.image.copy()
+            self.display_image = display_base
+
+        self.detected_contours = fresh_contours
+        self.detected_contour_labels = fresh_labels
         self._apply_mask_outline(self.display_image)
         self.update_image_label()
+
+    def _classify_contour_autok_label(self, contour):
+        centers = getattr(self, '_autok_centers', None)
+        img = getattr(self.context, 'image', None)
+        return classify_contour_to_center(img, contour, centers)
 
     def _run_detector_on_rect(self, rect):
         img = getattr(self.context, "image", None)
@@ -983,9 +1166,7 @@ class StepROIWidget(QWidget):
     def _toggle_fullscreen(self, checked):
         win = self.window()
         try:
-            if checked:
-                win.showMaximized()
-            else:
+            if win is not None:
                 win.showNormal()
         except Exception:
             pass
@@ -1071,35 +1252,19 @@ class StepROIWidget(QWidget):
                 self.log_widget.append_log('[INFO] No image for Auto-K')
             return
 
-        # Process ALL ROI areas if present (not just the first one)
-        if len(self.rois) > 0:
-            # Combine all ROI areas into a single image for color analysis
-            rois_combined = []
-            mask_combined = []
-            for rect in self.rois:
-                x, y, w, h = rect
-                rois_combined.append(img[y:y+h, x:x+w])
-                mask = getattr(self.context, 'mask', None)
-                if mask is not None:
-                    mask_combined.append(mask[y:y+h, x:x+w])
-            
-            # Concatenate all ROI images vertically for analysis
-            if rois_combined:
-                img_proc = np.vstack(rois_combined)
-                if mask_combined:
-                    mask_proc = np.vstack(mask_combined)
-                    valid = mask_proc > 0
-                else:
-                    valid = None
-            else:
-                img_proc = img
-                valid = None
-        else:
-            img_proc = img
-            mask = getattr(self.context, 'mask', None)
-            valid = mask > 0 if mask is not None else None
+        mask = getattr(self.context, 'mask', None)
+        valid = mask > 0 if mask is not None else None
+        rois = list(self.rois) if self.rois else None
+        centers = compute_autok_centers(
+            image_bgr=img,
+            k=self.slider_num_colors.value(),
+            valid_mask=valid,
+            rois=rois,
+            saturation_min=self.slider_sat.value(),
+            value_min=self.slider_val.value(),
+            fallback_to_whole=True,
+        )
 
-        centers = self._compute_hs_kmeans_centers(img_proc, k=self.slider_num_colors.value(), valid_mask=valid)
         if centers:
             # store centers on widget for subsequent calls
             self._autok_centers = centers
@@ -1113,39 +1278,35 @@ class StepROIWidget(QWidget):
             if self.log_widget:
                 self.log_widget.append_log('[AUTO-K] No centers found')
 
+    def _compute_hs_kmeans_centers_from_hs(self, hs, k=6):
+        if hs is None or hs.shape[0] == 0:
+            return []
+        try:
+            hs_f = hs.astype(np.float32)
+            n = hs_f.shape[0]
+            if n > 50000:
+                idx = np.random.choice(n, 50000, replace=False)
+                hs_f = hs_f[idx]
+
+            dummy_hsv = np.zeros((hs_f.shape[0], 1, 3), dtype=np.uint8)
+            dummy_hsv[:, 0, 0] = np.clip(hs_f[:, 0], 0, 179).astype(np.uint8)
+            dummy_hsv[:, 0, 1] = np.clip(hs_f[:, 1], 0, 255).astype(np.uint8)
+            dummy_hsv[:, 0, 2] = 200
+            dummy_bgr = cv2.cvtColor(dummy_hsv, cv2.COLOR_HSV2BGR)
+            return compute_autok_centers(dummy_bgr, k=k, valid_mask=None, rois=None, saturation_min=0, value_min=0, fallback_to_whole=False)
+        except Exception:
+            return []
+
     def _compute_hs_kmeans_centers(self, img_bgr, k=6, valid_mask=None):
-        # convert to HSV and sample H+S, optionally masked
-        try:
-            hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-        except Exception:
-            return []
-        H = hsv[:, :, 0].reshape(-1, 1).astype(np.float32)
-        S = hsv[:, :, 1].reshape(-1, 1).astype(np.float32)
-        hs = np.hstack([H, S])
-        if valid_mask is not None:
-            vm = valid_mask.reshape(-1)
-            hs = hs[vm]
-            if hs.shape[0] == 0:
-                return []
-
-        # downsample for speed if very large
-        n_samples = hs.shape[0]
-        if n_samples > 50000:
-            idx = np.random.choice(n_samples, 50000, replace=False)
-            hs_sample = hs[idx]
-        else:
-            hs_sample = hs
-
-        # normalize H to [0..179], S to [0..255] as floats already
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-        try:
-            _, labels, centers = cv2.kmeans(hs_sample, k, None, criteria, 10, cv2.KMEANS_PP_CENTERS)
-        except Exception:
-            return []
-        centers = centers.astype(int).tolist()
-        # convert to tuples (h,s)
-        centers_t = [(int(c[0]), int(c[1])) for c in centers]
-        return centers_t
+        return compute_autok_centers(
+            image_bgr=img_bgr,
+            k=k,
+            valid_mask=valid_mask,
+            rois=None,
+            saturation_min=self.slider_sat.value(),
+            value_min=self.slider_val.value(),
+            fallback_to_whole=False,
+        )
 
     def on_next_save(self):
         """Save annotated picture (with outline/ROIs/points/contours) and the mask. Also save slider state."""
@@ -1238,3 +1399,4 @@ class StepROIWidget(QWidget):
                     self._delete_selected_area()
         else:
             super().keyPressEvent(event)
+
