@@ -15,8 +15,8 @@ def ensure_marlin_settings_exists():
     if not os.path.exists(SETTINGS_PATH):
         print(f"[INFO] {SETTINGS_PATH} nem található, létrehozás alapértelmezett beállításokkal...")
         save_settings(DEFAULT_SETTINGS)
-    else:
-        print(f"[INFO] {SETTINGS_PATH} már létezik.")
+    # else:
+        # print(f"[INFO] {SETTINGS_PATH} már létezik.")
 
 
 def load_settings():

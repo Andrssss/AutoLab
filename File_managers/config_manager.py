@@ -61,5 +61,5 @@ def ensure_settings_yaml_exists(filepath=SETTINGS_FILE):
             print(f"[OK] Üres {filepath} létrehozva.")
         except Exception as e:
             print(f"[HIBA] Nem sikerült létrehozni a {filepath} fájlt: {e}")
-    else:
-        print(f"[INFO] {filepath} már létezik.")
+    # else:
+        # print(f"[INFO] {filepath} már létezik.")

@@ -241,11 +241,13 @@ class BacteriaDetector:
         # slight blur using cv2 (more reliable) -> HSV using cv2
         blurred = cv2.GaussianBlur(roi_img, (5, 5), 0)
         hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+        if self.color_calibration:
+            hsv[:, :, 2] = cv2.equalizeHist(hsv[:, :, 2])
         gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
 
         overlay = image_bgr.copy()
         object_id = 1
-        category_counts = [0 for _ in self.hue_ranges]
+        category_counts = []
         centers = []
         objects = []
 
@@ -276,6 +278,8 @@ class BacteriaDetector:
                 masks_to_process.append(hsv_mask)
                 mask_labels.append((i, (h_min, h_max)))
 
+        category_counts = [0 for _ in mask_labels]
+
         for hue_idx, label_info in enumerate(mask_labels):
             final_mask = masks_to_process[hue_idx]
 
@@ -290,6 +294,12 @@ class BacteriaDetector:
             # limit to dish/ROI
             if roi_mask is not None:
                 final_mask = np.bitwise_and(final_mask, roi_mask)
+
+            if self.use_edge_split:
+                edges = cv2.Canny(gray, 40, 120)
+                edge_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+                edges = cv2.dilate(edges, edge_kernel, iterations=1)
+                final_mask = cv2.bitwise_and(final_mask, cv2.bitwise_not(edges))
 
             if save_debug:
                 cv2.imwrite(os.path.join(out_dir, f"{prefix}output_hsv_hole_deleted_cat{hue_idx + 1}.png"), final_mask)
@@ -342,6 +352,12 @@ class BacteriaDetector:
                 if not matched:
                     continue
 
+                tex = {}
+                if self.use_texture:
+                    tex = self._extract_texture_features(gray, cnt)
+                    if tex.get("var", 0.0) < 10.0 and tex.get("grad_mean", 0.0) < 6.0:
+                        continue
+
                 color = self._legend_color(hue_idx)
                 # draw on full overlay (shift contour back to full image coords)
                 cnt_full = cnt + np.array([[x, y]])
@@ -372,7 +388,6 @@ class BacteriaDetector:
 
                 # texture features (optional)
                 if self.use_texture:
-                    tex = self._extract_texture_features(gray, cnt)
                     obj["texture"] = tex
                 else:
                     obj["texture"] = {}
@@ -380,10 +395,6 @@ class BacteriaDetector:
                 objects.append(obj)
 
                 object_id += 1
-                # ensure category_counts length matches
-                if hue_idx >= len(category_counts):
-                    # extend category_counts if necessary
-                    category_counts.extend([0] * (hue_idx - len(category_counts) + 1))
                 category_counts[hue_idx] += 1
 
         # legend
@@ -391,8 +402,22 @@ class BacteriaDetector:
         for idx, count in enumerate(category_counts):
             color = self._legend_color(idx)
             cv2.rectangle(overlay, (10, y0 - 12), (30, y0 + 4), color, -1)
+            label_text = f"Cat {idx+1}"
+            if idx < len(mask_labels):
+                raw_label = mask_labels[idx][1]
+                if isinstance(raw_label, (tuple, list)) and len(raw_label) >= 2:
+                    a, b = raw_label[0], raw_label[1]
+                    try:
+                        label_text = f"Cat {idx+1} ({int(a)}–{int(b)})"
+                    except Exception:
+                        label_text = f"Cat {idx+1} ({raw_label})"
+                elif raw_label is not None:
+                    label_text = f"Cat {idx+1} ({raw_label})"
+            elif idx < len(self.hue_ranges):
+                h0, h1 = self.hue_ranges[idx]
+                label_text = f"Cat {idx+1} ({h0}–{h1})"
             cv2.putText(overlay,
-                        f"Cat {idx+1} ({self.hue_ranges[idx][0]}–{self.hue_ranges[idx][1]}): {count}",
+                        f"{label_text}: {count}",
                         (35, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             y0 += 20
 

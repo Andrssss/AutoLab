@@ -1,7 +1,7 @@
 import numpy as np
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox, QDialog
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox, QDialog, QSplitter
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 import cv2
 
 from File_managers import config_manager
@@ -15,40 +15,64 @@ class StepSummaryWidget(QWidget):
         self.image_path = image_path
         self.log_widget = log_widget
 
+        # Main layout: vertical with split panel in middle and buttons at bottom
+        main_layout = QVBoxLayout(self)
 
-        layout = QVBoxLayout()
-
-        title = QLabel("Összegzés")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 16px; font-weight: bold;")
-        layout.addWidget(title)
-
-        self.image_label = QLabel("Nincs kép")
+        # --- Center: Split panel (image left, log right) ---
+        splitter = QSplitter(Qt.Horizontal)
+        
+        # Left: Image
+        self.image_label = QLabel("No Image")
         self.image_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.image_label)
-
+        self.image_label.setMinimumWidth(300)
+        splitter.addWidget(self.image_label)
+        
+        # Right: Log (ROI points text)
         self.roi_text = QTextEdit()
         self.roi_text.setReadOnly(True)
-        layout.addWidget(self.roi_text)
+        self.roi_text.setMinimumWidth(300)
+        splitter.addWidget(self.roi_text)
+        
+        splitter.setStretchFactor(0, 1)  # image takes 1x space
+        splitter.setStretchFactor(1, 1)  # log takes 1x space
+        
+        main_layout.addWidget(splitter, 1)
 
-        self.measure_btn = QPushButton("Mérj 1 cm-t")
-        self.prev_btn = QPushButton("◀ Előző")
-        self.next_btn = QPushButton("Következő ▶")
-
-        layout.addWidget(self.measure_btn)
-        layout.addWidget(self.prev_btn)
-        layout.addWidget(self.next_btn)
-
-        self.setLayout(layout)
+        # --- Bottom: Buttons in one row ---
+        button_layout = QHBoxLayout()
+        
+        self.measure_btn = QPushButton("📏 Measure 1 cm")
+        self.prev_btn = QPushButton("◀ Previous")
+        self.next_btn = QPushButton("Next ▶")
+        
+        button_layout.addWidget(self.measure_btn)
+        button_layout.addWidget(self.prev_btn)
+        button_layout.addWidget(self.next_btn)
+        
+        main_layout.addLayout(button_layout)
+        self.setLayout(main_layout)
 
         self.measure_btn.clicked.connect(self.open_measure_dialog)
         self.next_btn.clicked.connect(self.try_advance)
 
         self.display_image_with_rois()
         self.display_roi_points()
+        QTimer.singleShot(0, self._refresh_view)
 
         # Pixel per cm automatikus betöltése config-ból
         self.load_pixel_per_cm_from_config()
+
+    def _refresh_view(self):
+        self.display_image_with_rois()
+        self.display_roi_points()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_view()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.display_image_with_rois()
 
     def load_pixel_per_cm_from_config(self):
         try:
@@ -65,30 +89,36 @@ class StepSummaryWidget(QWidget):
             self.log_widget.append_log(f"[HIBA] pixel_per_cm betöltése sikertelen: {e}")
 
     def display_image_with_rois(self):
-        image = self.context.image
-        if image is None:
-            self.image_label.setText("❌ Nincs kép betöltve.")
+        # Prefer the annotated display image from ROI widget if available
+        display_img_attr = getattr(self.context, "display_image", None)
+        display_base = display_img_attr if display_img_attr is not None else self.context.image
+        if display_base is None:
+            self.image_label.setText("❌ No image loaded.")
             return
 
-        roi_points = self.context.roi_points or []
-        display_img = image.copy()
+        roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
+        display_img = display_base.copy()
 
-        # --- draw Petri dish outline (yellow) ---
-        self._apply_dish_outline(display_img, color=(0, 255, 255), thickness=2)
+        # --- draw Petri dish outline (yellow) only if not from ROI widget ---
+        if getattr(self.context, "display_image", None) is None:
+            self._apply_dish_outline(display_img, color=(0, 255, 255), thickness=2)
 
-        # draw ROI points
-        for pt in roi_points:
-            cv2.drawMarker(display_img, pt, (0, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=10, thickness=2)
+        # draw ROI points (if not already drawn by ROI widget)
+        if getattr(self.context, "display_image", None) is None:
+            for pt in roi_points:
+                cv2.drawMarker(display_img, pt, (0, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=10, thickness=2)
 
         rgb_image = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape
         bytes_per_line = ch * w
         qt_img = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_img).scaled(600, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # Scale to fit the larger image area in split panel
+        pixmap = QPixmap.fromImage(qt_img).scaled(self.image_label.width(), self.image_label.height(), 
+                                                    Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(pixmap)
 
     def display_roi_points(self):
-        roi_points = self.context.roi_points or []
+        roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
         if not roi_points:
             self.roi_text.setText("❌ Nincsenek ROI pontok.")
             return
@@ -115,7 +145,7 @@ class StepSummaryWidget(QWidget):
 
         try:
             # ROI pontok mentése dish_id = 1 alá
-            roi_points = self.context.roi_points or []
+            roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
             dish_id = 1
             dish_profile_manager.save_dish_roi_points(dish_id, roi_points)
             self.log_widget.append_log(f"[INFO] ROI pontok elmentve dish_id={dish_id}-hez.")

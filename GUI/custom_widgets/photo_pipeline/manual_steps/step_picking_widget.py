@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout, QApplication
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout, QApplication, QSplitter
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 import cv2
@@ -12,25 +12,46 @@ class StepPickingWidget(QWidget):
         self.main_window = main_window
         self.log_widget = log_widget
 
-        # UI
-        layout = QVBoxLayout(self)
-        self.image_label = QLabel("No Image"); self.image_label.setFixedHeight(200); self.image_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.image_label)
+        # Main layout: vertical with split panel in middle and buttons at bottom
+        main_layout = QVBoxLayout(self)
 
-        self.log_box = QTextEdit(); self.log_box.setReadOnly(True)
-        layout.addWidget(self.log_box)
+        # --- Center: Split panel (image left, log right) ---
+        splitter = QSplitter(Qt.Horizontal)
+        
+        # Left: Image
+        self.image_label = QLabel("No Image")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumWidth(300)
+        splitter.addWidget(self.image_label)
+        
+        # Right: Log
+        self.log_box = QTextEdit()
+        self.log_box.setReadOnly(True)
+        self.log_box.setMinimumWidth(300)
+        splitter.addWidget(self.log_box)
+        
+        splitter.setStretchFactor(0, 1)  # image takes 1x space
+        splitter.setStretchFactor(1, 1)  # log takes 1x space
+        
+        main_layout.addWidget(splitter, 1)
 
-        row = QHBoxLayout()
+        # --- Bottom: Buttons in one row ---
+        button_layout = QHBoxLayout()
+        
+        self.prev_btn = QPushButton("◀ Previous")
         self.start_btn = QPushButton("▶ Start picking")
         self.pause_btn = QPushButton("⏸ Pause / Continue")
-        self.stop_btn  = QPushButton("🛑 STOP")
-        row.addWidget(self.start_btn); row.addWidget(self.pause_btn); row.addWidget(self.stop_btn)
-        layout.addLayout(row)
-
-        self.prev_btn = QPushButton("◀ Előző")
+        self.stop_btn = QPushButton("🛑 STOP")
         self.finish_btn = QPushButton("✓ Finish")
-        layout.addWidget(self.prev_btn)
-        layout.addWidget(self.finish_btn)
+        
+        button_layout.addWidget(self.prev_btn)
+        button_layout.addWidget(self.start_btn)
+        button_layout.addWidget(self.pause_btn)
+        button_layout.addWidget(self.stop_btn)
+        button_layout.addWidget(self.finish_btn)
+        
+        main_layout.addLayout(button_layout)
+        self.setLayout(main_layout)
 
         # external deps
         try:
@@ -64,6 +85,20 @@ class StepPickingWidget(QWidget):
         # show image
         self._show_base()
 
+    def _refresh_view(self):
+        if self._points and self._idx >= 0:
+            self._draw_progress(current=self._idx)
+        else:
+            self._show_base()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_view()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_view()
+
     # ---------- lifecycle helpers ----------
     def prepare_to_close(self):
         """Called by the pipeline before removing the widget."""
@@ -87,14 +122,20 @@ class StepPickingWidget(QWidget):
         self.image_label.setPixmap(pix)
 
     def _show_base(self):
-        if self.context.image is not None:
+        # Prefer the annotated display image from ROI widget if available
+        display_img = getattr(self.context, "display_image", None)
+        if display_img is not None:
+            self._show(display_img)
+        elif self.context.image is not None:
             self._show(self.context.image)
         else:
             self.image_label.setText("No Image")
 
     def _draw_progress(self, current=None):
         """Draw visited points (black) and current (red)."""
-        base = self.context.image
+        # Use display_image if available (annotated from ROI widget), otherwise fallback to context.image
+        display_img_attr = getattr(self.context, "display_image", None)
+        base = display_img_attr if display_img_attr is not None else self.context.image
         if base is None:
             return
         im = base.copy()
@@ -108,7 +149,7 @@ class StepPickingWidget(QWidget):
 
     # ---------- commands ----------
     def start_picking(self):
-        self._points = list(self.context.roi_points or [])
+        self._points = list(self.context.roi_points) if self.context.roi_points is not None else []
         if not self._points:
             self.log_box.append("[HIBA] Nincsenek ROI pontok.")
             return

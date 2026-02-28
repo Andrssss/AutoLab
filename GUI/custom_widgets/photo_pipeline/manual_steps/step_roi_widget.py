@@ -1,10 +1,11 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QSlider, QCheckBox, QFileDialog, QSpinBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QSlider, QCheckBox, QFileDialog, QSpinBox, QDialog, QDialogButtonBox
 from PyQt5.QtGui import QPixmap, QImage, QKeySequence
 from PyQt5.QtCore import Qt, QPoint, QTimer
 import cv2
 import numpy as np
 import math
 import os
+import yaml
 from Image_processing.BacteriaDetector import BacteriaDetector
 
 class StepROIWidget(QWidget):
@@ -63,6 +64,8 @@ class StepROIWidget(QWidget):
         self.next_btn.clicked.connect(self.on_next_save)
         self.reset_btn = QPushButton("🧹 Reset")
         self.reset_btn.clicked.connect(self.reset_all)
+        self.clear_points_btn = QPushButton("🗑 Clear Points")
+        self.clear_points_btn.clicked.connect(self.clear_points_only)
 
         self.btn_mode_points = QPushButton("● Points")
         self.btn_mode_points.setCheckable(True)
@@ -77,6 +80,7 @@ class StepROIWidget(QWidget):
         mode_layout.addWidget(self.btn_mode_points)
         mode_layout.addWidget(self.btn_mode_areas)
         mode_layout.addStretch()
+        mode_layout.addWidget(self.clear_points_btn)
         mode_layout.addWidget(self.reset_btn)
 
         nav_layout = QHBoxLayout()
@@ -130,10 +134,6 @@ class StepROIWidget(QWidget):
         self.btn_export_csv = QPushButton("Export CSV")
         self.btn_export_csv.clicked.connect(self._on_export_csv)
 
-        self.btn_fullscreen = QPushButton("□ Maximize")
-        self.btn_fullscreen.setCheckable(True)
-        self.btn_fullscreen.clicked.connect(self._toggle_fullscreen)
-
         # realtime debounce timer
         self._detector_timer = QTimer(self)
         self._detector_timer.setSingleShot(True)
@@ -143,7 +143,7 @@ class StepROIWidget(QWidget):
         self.detector = BacteriaDetector()
 
         # connect sliders to debounce
-        self.slider_num_colors.valueChanged.connect(lambda _: self._detector_timer.start(250))
+        self.slider_num_colors.valueChanged.connect(self._on_num_colors_value_changed)
         self.slider_split.valueChanged.connect(lambda _: self._detector_timer.start(250))
         self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(250))
         self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(250))
@@ -193,6 +193,7 @@ class StepROIWidget(QWidget):
         right.addWidget(det_label)
         right.addWidget(QLabel("Num Colors"))
         right.addWidget(self.slider_num_colors)
+        right.addWidget(self.btn_auto_k)
         right.addWidget(QLabel("Split Threshold %"))
         right.addWidget(self.slider_split)
         right.addWidget(QLabel("Saturation Min"))
@@ -206,9 +207,7 @@ class StepROIWidget(QWidget):
         right.addWidget(self.chk_texture)
         right.addWidget(self.chk_edge)
         right.addWidget(self.chk_calib)
-        right.addWidget(self.btn_auto_k)
         right.addWidget(self.btn_export_csv)
-        right.addWidget(self.btn_fullscreen)
 
         main.addLayout(left, 3)
         main.addLayout(right, 1)
@@ -218,7 +217,6 @@ class StepROIWidget(QWidget):
 
         self.load_from_context()
         self._refresh_roi_lists()
-        right.addWidget(self.btn_auto_k)
         # swatches area
         self._swatches_container = QWidget()
         self._swatches_layout = QHBoxLayout()
@@ -227,6 +225,61 @@ class StepROIWidget(QWidget):
         # enable key events
         self.setFocusPolicy(Qt.StrongFocus)
 
+    # ---------- Slider state persistence ----------
+    def _get_slider_config_path(self):
+        """Get path to detector_params.yaml in config_profiles."""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Navigate up to project root: GUI/custom_widgets/photo_pipeline/manual_steps -> AutoLab
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(script_dir))))
+        config_dir = os.path.join(project_root, "config_profiles")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "detector_params.yaml")
+
+    def _save_slider_state(self):
+        """Save all slider positions to YAML config file."""
+        try:
+            state = {
+                "num_colors": self.slider_num_colors.value(),
+                "split_threshold": self.slider_split.value(),
+                "saturation_min": self.slider_sat.value(),
+                "value_min": self.slider_val.value(),
+                "morph_close_radius": self.slider_close.value(),
+                "morph_open_radius": self.slider_open.value(),
+                "use_texture": self.chk_texture.isChecked(),
+                "use_edge_split": self.chk_edge.isChecked(),
+                "auto_color_calib": self.chk_calib.isChecked(),
+            }
+            path = self._get_slider_config_path()
+            with open(path, "w") as f:
+                yaml.dump(state, f, default_flow_style=False)
+        except Exception as e:
+            if self.log_widget:
+                self.log_widget.append_log(f"[WARN] Failed to save slider state: {e}")
+
+    def _load_slider_state(self):
+        """Load slider positions from YAML config file if available."""
+        try:
+            path = self._get_slider_config_path()
+            if not os.path.exists(path):
+                return
+            with open(path, "r") as f:
+                state = yaml.safe_load(f)
+            if not state:
+                return
+            # Load values (with defaults if keys missing)
+            self.slider_num_colors.setValue(state.get("num_colors", 8))
+            self.slider_split.setValue(state.get("split_threshold", 40))
+            self.slider_sat.setValue(state.get("saturation_min", 50))
+            self.slider_val.setValue(state.get("value_min", 50))
+            self.slider_close.setValue(state.get("morph_close_radius", 2))
+            self.slider_open.setValue(state.get("morph_open_radius", 1))
+            self.chk_texture.setChecked(state.get("use_texture", False))
+            self.chk_edge.setChecked(state.get("use_edge_split", False))
+            self.chk_calib.setChecked(state.get("auto_color_calib", False))
+        except Exception as e:
+            if self.log_widget:
+                self.log_widget.append_log(f"[WARN] Failed to load slider state: {e}")
+
     # ---------- context ----------
     def load_from_context(self):
         if getattr(self.context, "image", None) is not None:
@@ -234,6 +287,9 @@ class StepROIWidget(QWidget):
         else:
             self.image_label.setText("❌ No image")
         self.update_info()
+
+        # load slider positions from config if available
+        self._load_slider_state()
 
         # apply initial detector params and run a quick preview
         self._apply_detector_params()
@@ -252,6 +308,8 @@ class StepROIWidget(QWidget):
         self.context.rois = self.rois
         self.context.rois_areas = self.rois
         self.context.roi_points = self.roi_points
+        # save slider state whenever context is saved
+        self._save_slider_state()
 
     # ---------- rendering ----------
     def display_roi_image(self):
@@ -553,6 +611,18 @@ class StepROIWidget(QWidget):
         self.btn_mode_areas.setChecked(mode == self.MODE_AREAS)
         self.update_info()
 
+    def clear_points_only(self):
+        """Clear only roi_points, keep rois and analysis."""
+        self.roi_points.clear()
+        self.selected_point_idx = -1
+        if hasattr(self.context, "merged_points"):
+            self.context.merged_points = []
+        self.update_image_label()
+        self._refresh_roi_lists()
+        self.save_to_context()
+        if self.log_widget:
+            self.log_widget.append_log("[INFO] Points cleared.")
+
     def reset_all(self):
         self.rois.clear()
         self.roi_points.clear()
@@ -682,13 +752,40 @@ class StepROIWidget(QWidget):
         self._refresh_roi_lists()
 
     # ---------- Detector helpers ----------
+    def _on_num_colors_value_changed(self, _value):
+        # If Auto-K centers are active, changing Num Colors should recompute centers.
+        if hasattr(self, '_autok_centers') and getattr(self, '_autok_centers', None):
+            self._on_autok()
+            return
+        self._detector_timer.start(250)
+
+    def _autok_centers_to_hue_ranges(self, centers, tol=8):
+        if not centers:
+            return None
+        ranges = []
+        for c in centers:
+            try:
+                h = int(c[0]) if isinstance(c, (list, tuple)) else int(c)
+            except Exception:
+                continue
+            h0 = max(0, h - int(tol))
+            h1 = min(179, h + int(tol))
+            ranges.append((h0, h1))
+        return ranges if ranges else None
+
     def _apply_detector_params(self):
         # push UI params into detector
-        # For now hue_centers left to auto-detection inside detector; we map num colors to that internal use later
-        # ensure centers are passed when present
-        hue_centers = getattr(self, '_autok_centers', None)
+        # If Auto-K was used, convert centers to hue ranges so sat/value sliders still affect detection.
+        hue_centers = None
+        hue_ranges = None
+        autok_centers = getattr(self, '_autok_centers', None)
+        if autok_centers:
+            hue_ranges = self._autok_centers_to_hue_ranges(autok_centers, tol=8)
+
         self.detector.set_params(
+            hue_ranges=hue_ranges,
             hue_centers=hue_centers,
+            use_hs_soft_assignment=False,
             split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value(),
@@ -703,9 +800,15 @@ class StepROIWidget(QWidget):
         # Mirror current UI detection params into the pipeline context detector
         if not hasattr(self, 'context') or not hasattr(self.context, 'detector'):
             return
-        hue_centers = getattr(self, '_autok_centers', None)
+        hue_centers = None
+        hue_ranges = None
+        autok_centers = getattr(self, '_autok_centers', None)
+        if autok_centers:
+            hue_ranges = self._autok_centers_to_hue_ranges(autok_centers, tol=8)
         params = dict(
+            hue_ranges=hue_ranges,
             hue_centers=hue_centers,
+            use_hs_soft_assignment=False,
             split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value(),
@@ -720,6 +823,19 @@ class StepROIWidget(QWidget):
         except Exception:
             # best-effort; ignore failures
             pass
+
+    def _legend_color(self, idx):
+        if hasattr(self, "detector") and self.detector is not None and hasattr(self.detector, "_legend_color"):
+            return self.detector._legend_color(idx)
+        fallback_palette = [
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 0),
+            (255, 0, 255),
+            (0, 255, 255),
+        ]
+        return fallback_palette[idx % len(fallback_palette)]
 
     def _on_detector_params_apply(self):
         # apply params and run a preview on currently visible region (ROIs if present else whole)
@@ -1032,7 +1148,18 @@ class StepROIWidget(QWidget):
         return centers_t
 
     def on_next_save(self):
-        """Save annotated picture (with outline/ROIs/points/contours) and the mask."""
+        """Save annotated picture (with outline/ROIs/points/contours) and the mask. Also save slider state."""
+        # Save slider positions before moving to next step
+        self._save_slider_state()
+        
+        # If new ROIs were drawn, run detector on them automatically
+        if self.rois:
+            try:
+                self._on_detector_params_apply()
+            except Exception as e:
+                if self.log_widget:
+                    self.log_widget.append_log(f"[INFO] Auto-detect on new ROIs: {e}")
+        
         try:
             img = getattr(self.context, "image", None)
             if img is None:
@@ -1076,6 +1203,9 @@ class StepROIWidget(QWidget):
                 cv2.imwrite(mask_path, mask_u8)
                 if self.log_widget:
                     self.log_widget.append_log(f"[SAVE] Mask -> {mask_path}")
+            
+            # Transfer the annotated display image to context for picking widget to use
+            self.context.display_image = out
 
         except Exception as e:
             import traceback
