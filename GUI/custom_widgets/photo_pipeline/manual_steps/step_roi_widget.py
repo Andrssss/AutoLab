@@ -338,6 +338,7 @@ class StepROIWidget(QWidget):
 
         # load slider positions from config if available
         self._load_slider_state()
+        self._load_autok_state_from_context()
 
         # apply initial detector params and run a quick preview
         self._apply_detector_params()
@@ -383,6 +384,52 @@ class StepROIWidget(QWidget):
         self.context.roi_points = self.roi_points
         # save slider state whenever context is saved
         self._save_slider_state()
+        self._save_autok_state_to_context()
+
+    def _save_autok_state_to_context(self):
+        if not hasattr(self.context, "settings") or not isinstance(self.context.settings, dict):
+            return
+
+        roi_state = dict(self.context.settings.get("roi_detector_state", {}))
+        centers = getattr(self, "_autok_centers", None)
+        if centers:
+            roi_state["autok_centers"] = [[int(c[0]), int(c[1])] for c in centers]
+        else:
+            roi_state.pop("autok_centers", None)
+        self.context.settings["roi_detector_state"] = roi_state
+
+    def _load_autok_state_from_context(self):
+        if not hasattr(self.context, "settings") or not isinstance(self.context.settings, dict):
+            return
+
+        roi_state = self.context.settings.get("roi_detector_state", {})
+        centers = roi_state.get("autok_centers", None) if isinstance(roi_state, dict) else None
+
+        if not centers:
+            if hasattr(self, "_autok_centers"):
+                delattr(self, "_autok_centers")
+            if hasattr(self, "_swatches_layout"):
+                self._clear_swatches()
+            return
+
+        normalized = []
+        for c in centers:
+            try:
+                h = int(c[0])
+                s = int(c[1])
+                normalized.append((h, s))
+            except Exception:
+                continue
+
+        if normalized:
+            self._autok_centers = normalized
+            if hasattr(self, "_swatches_layout"):
+                self._build_swatches_from_centers(normalized)
+        else:
+            if hasattr(self, "_autok_centers"):
+                delattr(self, "_autok_centers")
+            if hasattr(self, "_swatches_layout"):
+                self._clear_swatches()
 
     def _compose_visualized_image(self):
         if self.display_image is None:
@@ -813,6 +860,9 @@ class StepROIWidget(QWidget):
                 self.log_widget.append_log("[INFO] No image to analyze.")
             return
 
+        # Ensure analysis uses the latest slider/checkbox values immediately
+        self._prepare_detector_for_analysis()
+
         res_list = []
         auto_pts = []
         contours = []
@@ -879,6 +929,10 @@ class StepROIWidget(QWidget):
             if self.log_widget:
                 self.log_widget.append_log("[INFO] No image to analyze.")
             return
+
+        # Ensure analysis uses the latest slider/checkbox values immediately
+        self._prepare_detector_for_analysis()
+
         mask = getattr(self.context, "mask", None)
 
         if hasattr(self.context, "analyze_whole") and callable(self.context.analyze_whole):
@@ -951,6 +1005,32 @@ class StepROIWidget(QWidget):
                 self.roi_points.append((int(nx), int(ny)))
         # after bulk add, keep list in sync
         self._refresh_roi_lists()
+
+    def _prepare_detector_for_analysis(self):
+        """Flush pending UI detector changes so Analyze uses current values."""
+        try:
+            if hasattr(self, "_detector_timer") and self._detector_timer.isActive():
+                self._detector_timer.stop()
+        except Exception:
+            pass
+
+        # Apply to local preview detector immediately
+        try:
+            self._apply_detector_params()
+        except Exception:
+            pass
+
+        # Persist so PipelineContext refresh reads fresh values
+        try:
+            self._save_slider_state()
+        except Exception:
+            pass
+
+        # Best-effort direct sync to context detector too
+        try:
+            self._sync_params_to_context_detector()
+        except Exception:
+            pass
 
     # ---------- Detector helpers ----------
     def _on_num_colors_value_changed(self, _value):
@@ -1235,6 +1315,7 @@ class StepROIWidget(QWidget):
                     ranges.append((min_h, max_h))
                 self.hue_ranges = ranges
                 delattr(self, '_autok_centers')
+                self._save_autok_state_to_context()
             else:
                 if 0 <= idx < len(self.hue_ranges):
                     c0, c1 = self.hue_ranges[idx]
@@ -1268,6 +1349,7 @@ class StepROIWidget(QWidget):
         if centers:
             # store centers on widget for subsequent calls
             self._autok_centers = centers
+            self._save_autok_state_to_context()
             if self.log_widget:
                 self.log_widget.append_log(f'[AUTO-K] Found {len(centers)} centers from all ROIs')
             # apply and preview
