@@ -5,13 +5,14 @@ from PyQt5.QtGui import QImage, QPixmap
 from File_managers import config_manager  # required import
 import platform
 from functools import partial
+from Pozitioner_and_Communicater.control_actions import ControlActions
 
 from GUI.custom_widgets.mainwindow_components.PixelPerCmMeasureDialog import PixelPerCmMeasureDialog
 
 
 class CameraSettingsDialog(QDialog):
     def __init__(self, camera_index, zoom_level, zoom_offset_x, zoom_offset_y, blur_enabled, gain, exposure,
-                  g_control, log_widget, command_sender,parent=None):
+                  log_widget, control_actions: ControlActions, parent=None):
         super().__init__(parent)
         self.camera_index = camera_index
         self.zoom_level = zoom_level
@@ -20,14 +21,11 @@ class CameraSettingsDialog(QDialog):
         self.blur_enabled = blur_enabled
         self.gain = gain
         self.exposure = exposure
-        # inside __init__ after self.exposure = exposure
-        cam_set = config_manager.load_camera_settings(self.camera_index)
-        self.led_last_pwm = cam_set.get("led_pwm", 255)  # default full
-        # self.led_enabled = cam_set.get("led_enabled", False)  # default OFF
-        self.led_enabled = True  # always ON
-        self.g_control = g_control
+        shared_led = config_manager.load_led_settings(default_pwm=255, default_enabled=False)
+        self.led_last_pwm = int(shared_led.get("led_pwm", 255))
+        self.led_enabled = bool(shared_led.get("led_enabled", False))
         self.log_widget = log_widget
-        self.command_sender = command_sender
+        self.control_actions = control_actions
 
 
         self.setWindowTitle("Camera Settings")
@@ -411,12 +409,7 @@ class CameraSettingsDialog(QDialog):
     def send_fan_pwm(self, s_value: int):
         """Send M106 S<0..255> safely (only when connected)."""
         s = max(0, min(255, int(s_value)))
-        if not self.g_control.connected:
-            self.log_widget.append_log("[ERROR] CAMERA: Machine is not connected (M106 skipped).")
-            return
-        cmd = f"M106 S{s}\n" if s > 0 else "M106 S0\n"  # M107 could also be used for OFF
-        self.log_widget.append_log(f"[CAMERA] LED: {cmd.strip()}")
-        self.command_sender.sendCommand.emit(cmd)
+        self.control_actions.action_led_pwm(s)
 
     def on_led_value_changed(self, val: int):
         """Update display only (does not send command)."""
@@ -426,6 +419,7 @@ class CameraSettingsDialog(QDialog):
     def on_led_slider_released(self):
         val = self.sld_led.value()
         self.led_last_pwm = val
+        config_manager.save_led_settings(led_pwm=self.led_last_pwm, led_enabled=self.btn_led_toggle.isChecked())
         if self.btn_led_toggle.isChecked():
             self.send_fan_pwm(val)
         else:
@@ -444,6 +438,7 @@ class CameraSettingsDialog(QDialog):
         else:
             self.btn_led_toggle.setText("LED: OFF")
             self.send_fan_pwm(0)
+        config_manager.save_led_settings(led_pwm=self.led_last_pwm, led_enabled=self.led_enabled)
 
     def closeEvent(self, event):
         self.timer.stop()
@@ -462,6 +457,7 @@ class CameraSettingsDialog(QDialog):
             "led_enabled": getattr(self, "led_enabled", False),
         }
         self.send_fan_pwm(0)
+        config_manager.save_led_settings(led_pwm=settings_data.get("led_pwm", 255), led_enabled=settings_data.get("led_enabled", False))
         config_manager.save_camera_settings(self.camera_index, settings_data)
         self.result = settings_data
         event.accept()

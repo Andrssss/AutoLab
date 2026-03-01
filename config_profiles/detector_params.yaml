@@ -3,7 +3,7 @@ morph_close_radius: 4
 morph_open_radius: 5
 num_colors: 10
 saturation_min: 54
-split_threshold: 13
+split_threshold: 16
 use_edge_split: false
 use_texture: false
 value_min: 38

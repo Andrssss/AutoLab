@@ -1,6 +1,7 @@
 # manual_pipeline_widget.py
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QStackedWidget, QLabel, QApplication
+from PyQt5.QtGui import QCloseEvent
 from .start_widget import StartWidget
 from .manual_steps.manual_pipeline_widget import PipelineWidget as ManualPipelineWidget
 from .auto_steps.auto_pipeline_widget import AutoPipelineWidget
@@ -95,10 +96,26 @@ class PipelineWidget(QWidget):
         if self.log_widget:
             self.log_widget.append_log("[DEBUG] Auto pipeline finished - closing top-level PipelineWidget.")
 
-        # Optional: clean up the manual pipeline widget
-        if self.manual_pipeline:
-            self.stack.removeWidget(self.manual_pipeline)
+        # Optional: clean up the auto pipeline widget
+        if self.auto_pipeline:
+            self._shutdown_embedded_pipeline(self.auto_pipeline)
+            self.stack.removeWidget(self.auto_pipeline)
             self.auto_pipeline.deleteLater()
             self.auto_pipeline = None
 
         self.close()
+
+    def _shutdown_embedded_pipeline(self, pipeline_widget):
+        if not pipeline_widget:
+            return
+        current_step = getattr(pipeline_widget, "current_step", None)
+        if current_step and hasattr(current_step, "prepare_to_close"):
+            try:
+                current_step.prepare_to_close()
+            except Exception:
+                pass
+
+    def closeEvent(self, event: QCloseEvent):
+        self._shutdown_embedded_pipeline(self.manual_pipeline)
+        self._shutdown_embedded_pipeline(self.auto_pipeline)
+        super().closeEvent(event)

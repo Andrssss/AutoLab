@@ -31,8 +31,17 @@ class GCodeControl:
         self.y_motor_queue = queue.Queue()
         self.aux_queue = queue.Queue()
         self.control_queue = queue.Queue()
+        self._worker_busy = {
+            "X_motor": False,
+            "Y_motor": False,
+            "AUX": False,
+            "CONTROL": False,
+        }
+        self._worker_busy_lock = threading.Lock()
 
         self.running = True
+        self._emergency_latched = False
+        self._emergency_lock = threading.Lock()
 
     def __del__(self):
         self.log("[INFO] GCodeControl destructor called")
@@ -106,11 +115,149 @@ class GCodeControl:
         parts = [p.strip() for p in str(command).replace("\r", "\n").split("\n") if p.strip()]
         return " | ".join(parts)
 
+    def _is_emergency_allowed_command(self, command: str) -> bool:
+        cmd = self._command_for_log(command).upper().strip()
+        if not cmd:
+            return False
+        return cmd.startswith("M112") or cmd.startswith("M999")
+
+    def set_emergency_latched(self, latched: bool):
+        with self._emergency_lock:
+            self._emergency_latched = bool(latched)
+
+    def is_emergency_latched(self) -> bool:
+        with self._emergency_lock:
+            return bool(self._emergency_latched)
+
+    def are_command_threads_alive(self) -> bool:
+        thread_names = ("x_thread", "y_thread", "aux_thread", "control_thread")
+        for name in thread_names:
+            thread = getattr(self, name, None)
+            if thread is None or not thread.is_alive():
+                return False
+        return True
+
+    def _set_worker_busy(self, name: str, busy: bool):
+        with self._worker_busy_lock:
+            if name in self._worker_busy:
+                self._worker_busy[name] = bool(busy)
+
+    def has_pending_motion_commands(self) -> bool:
+        try:
+            if not self.x_motor_queue.empty() or not self.y_motor_queue.empty() or not self.control_queue.empty():
+                return True
+        except Exception:
+            return False
+
+        with self._worker_busy_lock:
+            return bool(
+                self._worker_busy.get("X_motor")
+                or self._worker_busy.get("Y_motor")
+                or self._worker_busy.get("CONTROL")
+            )
+
+    def _is_xy_move_command(self, command: str) -> bool:
+        line = self._command_for_log(command).upper().strip()
+        if not line:
+            return False
+        if not (line.startswith("G0") or line.startswith("G1")):
+            return False
+        return " X" in f" {line}" and " Y" in f" {line}"
+
+    def _is_manual_jog_command(self, command: str) -> bool:
+        parts = [p.strip().upper() for p in str(command).replace("\r", "\n").split("\n") if p.strip()]
+        if len(parts) != 2:
+            return False
+        if parts[0] != "G91":
+            return False
+        second = parts[1]
+        return second.startswith("G1 ") and (" X" in f" {second}" or " Y" in f" {second}")
+
+    def _is_motion_command(self, command: str) -> bool:
+        if not command:
+            return False
+        parts = [p.strip().upper() for p in str(command).replace("\r", "\n").split("\n") if p.strip()]
+        if not parts:
+            return False
+        if self._is_manual_jog_command(command):
+            return True
+        return any(p.startswith("G0") or p.startswith("G1") for p in parts)
+
+    def _filter_queue(self, q: queue.Queue, predicate):
+        kept = []
+        removed = 0
+        while True:
+            try:
+                item = q.get_nowait()
+            except queue.Empty:
+                break
+
+            if item == "STOP":
+                kept.append(item)
+                continue
+
+            if predicate(item):
+                removed += 1
+            else:
+                kept.append(item)
+
+        for item in kept:
+            q.put(item)
+
+        return removed
+
+    def clear_all_pending_commands(self) -> int:
+        removed = 0
+        removed += self._filter_queue(self.x_motor_queue, lambda _cmd: True)
+        removed += self._filter_queue(self.y_motor_queue, lambda _cmd: True)
+        removed += self._filter_queue(self.aux_queue, lambda _cmd: True)
+        removed += self._filter_queue(self.control_queue, lambda _cmd: True)
+        return removed
+
+    def _coalesce_axis_jog_queue(self, q: queue.Queue):
+        """Keep only non-jog items in axis queue so the latest jog can be appended once."""
+        kept = []
+        removed = 0
+        while True:
+            try:
+                item = q.get_nowait()
+            except queue.Empty:
+                break
+
+            if item == "STOP":
+                kept.append(item)
+            elif self._is_manual_jog_command(item):
+                removed += 1
+            else:
+                kept.append(item)
+
+        for item in kept:
+            q.put(item)
+
+        return removed
+
+    def clear_pending_manual_jog_commands(self) -> int:
+        removed = 0
+        removed += self._coalesce_axis_jog_queue(self.x_motor_queue)
+        removed += self._coalesce_axis_jog_queue(self.y_motor_queue)
+        return removed
+
+    def clear_pending_motion_commands(self) -> int:
+        removed = 0
+        removed += self._filter_queue(self.x_motor_queue, self._is_motion_command)
+        removed += self._filter_queue(self.y_motor_queue, self._is_motion_command)
+        removed += self._filter_queue(self.control_queue, self._is_motion_command)
+        return removed
+
 
 
     def send_command(self, command, wait_for_completion=False):
         if not self.connected:
             self.log("[WARN] send_command - not connected")
+            return None
+
+        if self.is_emergency_latched() and not self._is_emergency_allowed_command(command):
+            self.log(f"[EMERGENCY] Blocked command while latched: {self._command_for_log(command)}")
             return None
 
         # always send command
@@ -123,7 +270,7 @@ class GCodeControl:
         else:
             self.ser.write(command.encode('utf-8'))
 
-        time.sleep(0.05)
+        time.sleep(0.05 if wait_for_completion else 0.005)
 
         if wait_for_completion:
             # only then send M400 and wait for response
@@ -168,23 +315,32 @@ class GCodeControl:
             while self.running:
                 try:
                     command = q.get(timeout=1)
+                    self._set_worker_busy(name, True)
                     if command == "STOP":
                         self.log(f"[{name}] thread stopping.")
                         break
+                    if self.is_emergency_latched() and not self._is_emergency_allowed_command(command):
+                        continue
                     cmd_log = self._command_for_log(command)
                     if name in ("X_motor", "Y_motor"): # Wait only here; other paths may not return RAMPS responses
-                        self.log(f"[{name}] -> {cmd_log}")
-                        self.send_command(command, wait_for_completion=True)
+                        is_jog = self._is_manual_jog_command(command)
+                        if not is_jog:
+                            self.log(f"[{name}] -> {cmd_log}")
+                        wait_move = not is_jog
+                        self.send_command(command, wait_for_completion=wait_move)
                     elif name == "AUX":
                         # Specifically for M42 control
                         if command.startswith("M42"):
                             self.log(f"[AUX] M42 command: {cmd_log}")
                             self.send_command(command, wait_for_completion=False)
                     elif name == "CONTROL":
-                        self.log(f"[CONTROL] -> {cmd_log}")
-                        self.send_command(command, wait_for_completion=False)
+                        if not command.lstrip().upper().startswith("M106"):
+                            self.log(f"[CONTROL] -> {cmd_log}")
+                        self.send_command(command, wait_for_completion=self._is_xy_move_command(command))
                 except queue.Empty:
                     continue
+                finally:
+                    self._set_worker_busy(name, False)
         else:
             self.log(f"[WARN] {name} - not connected")
 
@@ -248,27 +404,44 @@ class GCodeControl:
 
     def new_command(self, command: str):
         if self.connected:
+            if self.is_emergency_latched() and not self._is_emergency_allowed_command(command):
+                self.log(f"[EMERGENCY] Queue reject while latched: {self._command_for_log(command)}")
+                return False
+
             cmd_upper = command.upper().strip()
             cmd_log = self._command_for_log(cmd_upper)
+            is_jog = self._is_manual_jog_command(cmd_upper)
 
             if "G1" in cmd_upper or "G0" in cmd_upper:
                 if "X" in cmd_upper and "Y" not in cmd_upper:
-                    self.log(f"[DISPATCH] X_motor_queue <- {cmd_log}")
+                    if is_jog:
+                        self._coalesce_axis_jog_queue(self.x_motor_queue)
+                    if not is_jog:
+                        self.log(f"[DISPATCH] X_motor_queue <- {cmd_log}")
                     self.send_to_x(cmd_upper)
+                    return True
                 elif "Y" in cmd_upper and "X" not in cmd_upper:
-                    self.log(f"[DISPATCH] Y_motor_queue <- {cmd_log}")
+                    if is_jog:
+                        self._coalesce_axis_jog_queue(self.y_motor_queue)
+                    if not is_jog:
+                        self.log(f"[DISPATCH] Y_motor_queue <- {cmd_log}")
                     self.send_to_y(cmd_upper)
+                    return True
                 else:
                     self.log(f"[DISPATCH] CONTROL_queue (mixed XY or other) <- {cmd_log}")
                     self.send_to_control(cmd_upper)
+                    return True
             elif cmd_upper.startswith("M42"):
                 self.log(f"[DISPATCH] AUX_queue (M42) <- {cmd_log}")
                 self.send_to_aux(cmd_upper)
+                return True
             else:
                 self.log(f"[DISPATCH] CONTROL_queue <- {cmd_log}")
                 self.send_to_control(cmd_upper)
+                return True
         else:
             self.log("[WARN] new_command - not connected")
+            return False
 
 
     def autoconnect(self):
@@ -390,6 +563,61 @@ class GCodeControl:
         if self.label_status:
             self.label_status.setText("Failed to connect to any serial port.")
         self.log("[INFO] Connection failed.")
+
+    def reconnect_saved(self, fallback: bool = True) -> bool:
+        """Reconnect using saved selected_port + baud from settings, optional fallback scan."""
+        try:
+            settings = config_manager.load_settings()
+            preferred_port = settings.get("selected_port", None)
+            preferred_baud = int(settings.get("baud", 250000))
+        except Exception as e:
+            self.log(f"[WARN] Failed to load saved connection settings: {e}")
+            preferred_port = None
+            preferred_baud = 250000
+
+        if not preferred_port:
+            self.log("[WARN] No saved port found in settings.")
+            if fallback:
+                self.autoconnect()
+                return bool(self.connected)
+            return False
+
+        if hasattr(self, 'x_thread') and self.x_thread.is_alive():
+            self.log("[INFO] Stopping previous threads before reconnect_saved...")
+            self.stop_threads()
+            self.running = True
+
+        try:
+            self.log(f"[INFO] reconnect_saved: trying {preferred_port} @ {preferred_baud}")
+            ser = serial.Serial(preferred_port, preferred_baud, timeout=1, write_timeout=1, rtscts=False, dsrdtr=False)
+            if self._probe_marlin_connection(ser, timeout=5.0):
+                self.ser = ser
+                self.set_connected(True)
+                if self.label_status:
+                    self.label_status.setText(f"Connected successfully: {preferred_port} @ {preferred_baud} baud")
+                self.log(f"[INFO] reconnect_saved success: {preferred_port} @ {preferred_baud}")
+
+                config_manager.update_settings({
+                    "selected_port": preferred_port,
+                    "baud": int(preferred_baud)
+                })
+
+                self.start_threads()
+                self.start_response_listener()
+                self.load_marlin_config()
+                return True
+
+            ser.close()
+            self.log(f"[WARN] reconnect_saved probe failed: {preferred_port} @ {preferred_baud}")
+        except Exception as e:
+            self.log(f"[WARN] reconnect_saved failed: {preferred_port} @ {preferred_baud} - {e}")
+
+        if fallback:
+            self.log("[INFO] reconnect_saved fallback -> autoconnect()")
+            self.autoconnect()
+            return bool(self.connected)
+
+        return False
 
     def start_response_listener(self):
         if hasattr(self, "response_thread") and self.response_thread.is_alive():

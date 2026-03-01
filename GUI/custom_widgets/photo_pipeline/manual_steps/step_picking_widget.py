@@ -2,9 +2,11 @@
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 import cv2
+from Pozitioner_and_Communicater.control_actions import ControlActions
 
 class StepPickingWidget(QWidget):
     finished = pyqtSignal()
+    ROI_MOVE_FEEDRATE = 6000
 
     def __init__(self, context, image_path=None, log_widget=None, main_window=None):
         super().__init__()
@@ -12,6 +14,11 @@ class StepPickingWidget(QWidget):
         self.context = context
         self.main_window = main_window
         self.log_widget = log_widget
+        self.control_actions: ControlActions | None = None
+        try:
+            self.control_actions = main_window.get_control_actions()
+        except Exception:
+            self.control_actions = None
 
         # Main layout: vertical with split panel in middle and buttons at bottom
         main_layout = QVBoxLayout(self)
@@ -44,6 +51,7 @@ class StepPickingWidget(QWidget):
         self.start_btn = QPushButton("Start picking")
         self.pause_btn = QPushButton("Pause / Continue")
         self.stop_btn = QPushButton("STOP")
+        self.stop_btn.setStyleSheet("color: red; font-weight: bold;")
 
         right_controls_layout.addWidget(self.start_btn)
         right_controls_layout.addWidget(self.pause_btn)
@@ -73,18 +81,6 @@ class StepPickingWidget(QWidget):
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
 
-        # external deps
-        try:
-            self.command_sender = main_window.get_command_sender()
-        except Exception:
-            self.command_sender = None
-            self.log_box.append("[ERROR] command_sender is not available.")
-        try:
-            self.g_control = main_window.get_g_control()
-        except Exception:
-            self.g_control = None
-            self.log_box.append("[ERROR] g_control is not available.")
-
         # state machine
         self._engine = QTimer(self)      # ticks every 100 ms
         self._engine.setInterval(100)
@@ -94,7 +90,10 @@ class StepPickingWidget(QWidget):
         self._paused = False
         self._idx = -1                   # current ROI index
         self._wait = 0                   # ticks remaining during dwell
+        self._awaiting_motion = False    # True while waiting for queued move to fully complete
         self._points = []                # cached roi_points
+        self._reconnect_required = False
+        self._resume_after_stop_available = False
 
         # wire
         self.start_btn.clicked.connect(self.start_picking)
@@ -106,8 +105,9 @@ class StepPickingWidget(QWidget):
         self._show_base()
 
     def _refresh_view(self):
-        if self._points and self._idx >= 0:
-            self._draw_progress(current=self._idx)
+        if self._points:
+            current = self._idx if self._idx >= 0 else None
+            self._draw_progress(current=current)
         else:
             self._show_base()
 
@@ -122,13 +122,48 @@ class StepPickingWidget(QWidget):
     # ---------- lifecycle helpers ----------
     def prepare_to_close(self):
         """Called by the pipeline before removing the widget."""
-        self._stop_engine()
+        self._abort_pending_picking_motion("[INFO] Picking closed; pending motion commands cleared.")
 
     def _stop_engine(self):
         self._active = False
         self._paused = False
+        self._awaiting_motion = False
         if self._engine.isActive():
             self._engine.stop()
+
+    def _abort_pending_picking_motion(self, log_message: str = ""):
+        self._stop_engine()
+        removed = 0
+        try:
+            if self.control_actions:
+                removed = int(self.control_actions.clear_pending_motion_commands())
+        except Exception:
+            removed = 0
+
+        self._reconnect_required = False
+        self._resume_after_stop_available = False
+
+        if log_message:
+            suffix = f" (removed: {removed})" if removed > 0 else ""
+            self.log_box.append(f"{log_message}{suffix}")
+
+    def _is_emergency_recovery_needed(self) -> bool:
+        if self._reconnect_required:
+            return True
+        if not self.control_actions:
+            return False
+        g_control = getattr(self.control_actions, "g_control", None)
+        if g_control is None:
+            return False
+
+        try:
+            if hasattr(g_control, "is_emergency_latched") and g_control.is_emergency_latched():
+                return True
+        except Exception:
+            return True
+
+        connected = bool(getattr(g_control, "connected", False))
+        return not connected
 
     # ---------- UI render ----------
     def _show(self, img):
@@ -155,19 +190,40 @@ class StepPickingWidget(QWidget):
             self.image_label.setText("No Image")
 
     def _draw_progress(self, current=None):
-        """Draw visited points (black) and current (red)."""
-        # Use display_image if available (annotated from ROI widget), otherwise fallback to context.image
         display_img_attr = getattr(self.context, "display_image", None)
         base = display_img_attr if display_img_attr is not None else self.context.image
         if base is None:
             return
         im = base.copy()
-        for i, (x, y) in enumerate(self._points):
-            if self._idx >= i:
-                cv2.drawMarker(im, (x, y), (0, 0, 0), markerType=cv2.MARKER_TILTED_CROSS, markerSize=8, thickness=2)
-        if current is not None and 0 <= current < len(self._points):
-            x, y = self._points[current]
-            cv2.drawMarker(im, (x, y), (0, 0, 255), markerType=cv2.MARKER_TILTED_CROSS, markerSize=8, thickness=2)
+
+        total = len(self._points)
+        if total == 0:
+            self._show(im)
+            return
+
+        current_idx = current if current is not None and 0 <= current < total else None
+
+        points_np = [(int(x), int(y)) for (x, y) in self._points]
+
+        for i in range(1, len(points_np)):
+            p0 = points_np[i - 1]
+            p1 = points_np[i]
+            if current_idx is not None and i <= current_idx:
+                cv2.line(im, p0, p1, (40, 170, 40), 2, cv2.LINE_AA)
+            else:
+                cv2.line(im, p0, p1, (120, 120, 120), 1, cv2.LINE_AA)
+
+        for i, (x, y) in enumerate(points_np):
+            if current_idx is not None and i < current_idx:
+                cv2.circle(im, (x, y), 7, (40, 170, 40), -1, cv2.LINE_AA)
+                cv2.circle(im, (x, y), 10, (0, 70, 0), 2, cv2.LINE_AA)
+            elif current_idx is not None and i == current_idx:
+                cv2.circle(im, (x, y), 10, (0, 0, 255), -1, cv2.LINE_AA)
+                cv2.circle(im, (x, y), 15, (255, 255, 255), 2, cv2.LINE_AA)
+            else:
+                cv2.circle(im, (x, y), 6, (0, 180, 255), -1, cv2.LINE_AA)
+                cv2.circle(im, (x, y), 9, (0, 90, 130), 1, cv2.LINE_AA)
+
         self._show(im)
 
     # ---------- commands ----------
@@ -176,40 +232,88 @@ class StepPickingWidget(QWidget):
         if not self._points:
             self.log_box.append("[ERROR] No ROI points.")
             return
-        if not self.command_sender or not self.g_control:
-            self.log_box.append("[ERROR] Controller is not configured.")
+        if not self.control_actions:
+            self.log_box.append("[ERROR] Control actions service is not available.")
             return
 
-        if not self.g_control.connected:
-            self.log_box.append("[INFO] Automatic reconnection...")
-            try:
-                self.g_control.autoconnect()
-            except Exception as e:
-                self.log_box.append(f"[ERROR] Autoconnect error: {e}")
+        if self._is_emergency_recovery_needed() and self._reconnect_required:
+            self.log_box.append("[INFO] Reconnecting to saved port before restart...")
+            if not self.control_actions.action_reconnect_saved_connection():
+                self.log_box.append("[ERROR] Reconnect failed (saved settings).")
                 return
+            self._reconnect_required = False
+
+        if self._is_emergency_recovery_needed():
+            if not self.control_actions.action_recover_from_emergency():
+                self.log_box.append("[ERROR] Emergency recovery failed (M999/reconnect).")
+                return
+            self.log_box.append("[INFO] Emergency recovery OK. Starting picking...")
 
         # init FSM
         self._active = True
         self._paused = False
         self._idx = -1
         self._wait = 0
+        self._awaiting_motion = False
+        self._resume_after_stop_available = False
+        self._draw_progress(current=None)
         self._engine.start()  # start ticking
+
+    def _resume_after_emergency_stop(self):
+        if not self._resume_after_stop_available or not self._points:
+            self.log_box.append("[WARN] No paused picking state to continue.")
+            return
+        if not self.control_actions:
+            self.log_box.append("[ERROR] Control actions service is not available.")
+            return
+
+        if self._is_emergency_recovery_needed() and self._reconnect_required:
+            self.log_box.append("[INFO] Reconnecting to saved port before continue...")
+            if not self.control_actions.action_reconnect_saved_connection():
+                self.log_box.append("[ERROR] Reconnect failed (saved settings).")
+                return
+            self._reconnect_required = False
+
+        if self._is_emergency_recovery_needed():
+            if not self.control_actions.action_recover_from_emergency():
+                self.log_box.append("[ERROR] Emergency recovery failed (M999/reconnect).")
+                return
+
+        self._active = True
+        self._paused = False
+        self._wait = 0
+        self._awaiting_motion = False
+        self._engine.start()
+        self.log_box.append("[INFO] Continued from last ROI position.")
 
     def toggle_pause(self):
         if not self._active:
+            if self._reconnect_required or self._resume_after_stop_available:
+                self._resume_after_emergency_stop()
             return
         self._paused = not self._paused
         self.log_box.append("Pause" if self._paused else "Resume")
 
     def stop_picking(self):
-        if not self._active:
-            return
+        self._resume_after_stop_available = bool(self._active or self._idx >= 0)
+        self._trigger_emergency_stop_like_manual_control()
         self._stop_engine()
-        self.log_box.append("[INFO] Pipetting stopped.")
+        self._reconnect_required = True
+        self.log_box.append("[INFO] Pipetting stopped (emergency stop sent).")
+
+    def _trigger_emergency_stop_like_manual_control(self):
+        """Use centralized emergency-stop action (manual control flow + fallback)."""
+        try:
+            control_widget = getattr(self.main_window, "control_widget", None) if self.main_window else None
+            source = self.control_actions.action_emergency_stop(stop_context=control_widget, send_reset=False) if self.control_actions else "fallback"
+            if source == "fallback":
+                self.log_box.append("[EMERGENCY STOP] M112 sent (fallback).")
+        except Exception as e:
+            self.log_box.append(f"[ERROR] Emergency stop failed: {e}")
 
     def _on_finish_clicked(self):
         # Gracefully stop the engine and emit finished on the next event loop turn
-        self._stop_engine()
+        self._abort_pending_picking_motion("[INFO] Picking finished by user; pending motion commands cleared.")
         QTimer.singleShot(0, self.finished.emit)
 
     # ---------- FSM tick ----------
@@ -222,6 +326,12 @@ class StepPickingWidget(QWidget):
         if self._paused:
             return
 
+        # wait until last move is really completed (queue drained + worker idle)
+        if self._awaiting_motion:
+            if self.control_actions and self.control_actions.has_pending_motion_commands():
+                return
+            self._awaiting_motion = False
+
         # waiting phase?
         if self._wait > 0:
             self._wait -= 1
@@ -230,7 +340,10 @@ class StepPickingWidget(QWidget):
         # move to next point
         self._idx += 1
         if self._idx >= len(self._points):
-            # done
+            if self.control_actions and self.control_actions.has_pending_motion_commands():
+                self._idx = len(self._points) - 1
+                return
+
             self._stop_engine()
             self.log_box.append("[DONE] All ROI positions visited.")
             return
@@ -238,7 +351,9 @@ class StepPickingWidget(QWidget):
         x, y = self._points[self._idx]
         self.log_box.append(f"[STEP] {self._idx + 1}. ROI -> X:{x}, Y:{y}")
         try:
-            self.command_sender.sendCommand.emit(f"G0 X{x} Y{y} F3000\n")
+            if not self.control_actions:
+                raise RuntimeError("Control actions service is not available.")
+            self.control_actions.action_move_xy(x, y, feedrate=self.ROI_MOVE_FEEDRATE)
         except Exception as e:
             self.log_box.append(f"[ERROR] Command send error: {e}")
             self._stop_engine()
@@ -247,11 +362,12 @@ class StepPickingWidget(QWidget):
         # show progress with current highlighted
         self._draw_progress(current=self._idx)
 
-        # dwell ~3s => 30 ticks (100 ms each)
-        self._wait = 30
+        # wait for actual motion completion before moving to next ROI
+        self._awaiting_motion = True
+        self._wait = 0
 
     # ---------- Qt cleanup ----------
     def closeEvent(self, event):
-        self._stop_engine()
+        self._on_finish_clicked()
         event.accept()
 

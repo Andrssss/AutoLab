@@ -4,6 +4,21 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QComboBox, QMessageBox, QGroupBox, QFrame, QSizePolicy
 )
 from PyQt5.QtCore import Qt
+from Pozitioner_and_Communicater.control_actions import (
+    ControlActions,
+    cmd_home,
+    cmd_mode_absolute,
+    cmd_mode_relative,
+    cmd_move_axis,
+    cmd_position_report,
+    cmd_query_settings,
+    cmd_save_settings,
+    cmd_set_position,
+    cmd_set_steps_axis,
+    cmd_set_steps_xy,
+    cmd_set_xy_zero,
+    cmd_soft_endstops,
+)
 
 
 class MotionCalibrationWindow(QWidget):
@@ -12,13 +27,14 @@ class MotionCalibrationWindow(QWidget):
     Left col:  1) Enable + soft off   2) Initial steps/mm     3) Jog test
     Right col: 4) Run test move       5) Measured -> apply    6) Save + soft on
     """
-    def __init__(self, g_control, log_widget=None):
+    def __init__(self, g_control, log_widget=None, control_actions: ControlActions | None = None):
         super().__init__()
         self.setWindowTitle("Motion Calibration (X/Y) - 2-column")
         self.resize(900, 520)
 
         self.g = g_control
         self.log = log_widget
+        self.control_actions = control_actions
 
         # Shared controls across steps
         self.sp_steps_x = self._spin(100.0, dec=6)
@@ -140,24 +156,24 @@ class MotionCalibrationWindow(QWidget):
 
     # ---------- actions ----------
     def _apply_steps(self):
-        self._send(f"M92 X{self.sp_steps_x.value():.6f} Y{self.sp_steps_y.value():.6f}")
+        self._send(cmd_set_steps_xy(self.sp_steps_x.value(), self.sp_steps_y.value()))
 
     def _jog(self, axis, delta):
         F = int(self.sp_feed.value())
-        self._send("G91")
-        self._send(f"G1 {axis}{delta:.3f} F{F}")
-        self._send("G90")
+        self._send(cmd_mode_relative())
+        self._send(cmd_move_axis(axis, delta, F, decimals=3))
+        self._send(cmd_mode_absolute())
 
     def _run_move(self):
         axis = self.cmb_axis.currentText().upper()
         mm   = self.sp_cmd.value()
         F    = int(self.sp_feed.value())
-        self._send("G90")
-        self._send(f"G92 {axis}0")
-        self._send("G91")
-        self._send(f"G1 {axis}{mm:.3f} F{F}")
-        self._send("G90")
-        self._send("M114")
+        self._send(cmd_mode_absolute())
+        self._send(cmd_set_position(axis, 0))
+        self._send(cmd_mode_relative())
+        self._send(cmd_move_axis(axis, mm, F, decimals=3))
+        self._send(cmd_mode_absolute())
+        self._send(cmd_position_report())
 
     def _compute_apply(self):
         axis = self.cmb_axis.currentText().upper()
@@ -170,17 +186,16 @@ class MotionCalibrationWindow(QWidget):
         new_steps = old * (commanded / measured)
         if axis == "X": self.sp_steps_x.setValue(new_steps)
         else:           self.sp_steps_y.setValue(new_steps)
-        self._send(f"M92 {axis}{new_steps:.6f}")
-        self._send("M500")
+        self._send(cmd_set_steps_axis(axis, new_steps))
+        self._send(cmd_save_settings())
         self._log(f"[CAL] {axis}: old={old:.6f}, command={commanded:.3f}, measured={measured:.3f} -> new={new_steps:.6f}")
 
     # ---------- low-level ----------
     def _send(self, gcode):
-        if not self.g:
-            QMessageBox.warning(self, "No connection", "GCodeControl instance is missing.")
+        if not self.control_actions:
+            QMessageBox.warning(self, "No connection", "ControlActions instance is missing.")
             return
-        self._log(f"[CAL] -> {gcode}")
-        self.g.new_command(gcode)
+        self.control_actions.action_calibration_command(command=gcode)
 
     def _log(self, msg):
         if self.log: self.log.append_log(msg)
@@ -208,12 +223,12 @@ class MotionCalibrationWindow(QWidget):
 
     # quick actions used by advanced row and steps
     def _act_m17(self):      self._send("M17")
-    def _act_m211_off(self): self._send("M211 S0")
-    def _act_m211_on(self):  self._send("M211 S1")
+    def _act_m211_off(self): self._send(cmd_soft_endstops(False))
+    def _act_m211_on(self):  self._send(cmd_soft_endstops(True))
     def _act_m400(self):     self._send("M400")
-    def _act_m500(self):     self._send("M500")
-    def _act_m503(self):     self._send("M503")
-    def _act_m114(self):     self._send("M114")
-    def _act_g28(self):      self._send("G28 XY")
-    def _act_g92_xy0(self):  self._send("G92 X0 Y0")
+    def _act_m500(self):     self._send(cmd_save_settings())
+    def _act_m503(self):     self._send(cmd_query_settings(newline=False))
+    def _act_m114(self):     self._send(cmd_position_report())
+    def _act_g28(self):      self._send(cmd_home("XY", newline=False))
+    def _act_g92_xy0(self):  self._send(cmd_set_xy_zero())
 

@@ -1,5 +1,6 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QStackedWidget
 from PyQt5.QtCore import pyqtSignal, QTimer
+from PyQt5.QtGui import QCloseEvent
 import cv2
 
 from GUI.custom_widgets.photo_pipeline.pipeline_context import PipelineContext
@@ -45,6 +46,7 @@ class AutoPipelineWidget(QWidget):
     # ------- same wiring as your manual PipelineWidget --------
     def load_step(self, index):
         if self.current_step is not None:
+            self._shutdown_current_step()
             self.stack.removeWidget(self.current_step)
             self.current_step.deleteLater()
             self.current_step = None
@@ -118,3 +120,14 @@ class AutoPipelineWidget(QWidget):
 
     def handle_finished(self):
         self.pipeline_finished.emit()
+
+    def _shutdown_current_step(self):
+        if self.current_step is not None and hasattr(self.current_step, "prepare_to_close"):
+            try:
+                self.current_step.prepare_to_close()
+            except Exception:
+                pass
+
+    def closeEvent(self, event: QCloseEvent):
+        self._shutdown_current_step()
+        super().closeEvent(event)

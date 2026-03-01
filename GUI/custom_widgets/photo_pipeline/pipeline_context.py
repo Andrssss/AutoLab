@@ -6,6 +6,7 @@ import os
 import cv2
 import numpy as np
 import logging
+import yaml
 
 
 class PipelineContext:
@@ -20,6 +21,8 @@ class PipelineContext:
         self.detector = BacteriaDetector()
         self.image_path: Optional[str] = None
         self.output_dir: Optional[str] = None
+        self._detector_params_path = os.path.join(config_manager.CONFIG_DIR, "detector_params.yaml")
+        self._detector_params_mtime: Optional[float] = None
 
         # user selections
         self.rois_areas: List[Tuple[int, int, int, int]] = []  # (x,y,w,h)
@@ -36,6 +39,7 @@ class PipelineContext:
 
         # calibration
         self.pixel_per_cm: Optional[float] = self._load_pixel_per_cm()
+        self._refresh_detector_params(force=True)
 
     # ===================== public API (called by widgets) =====================
 
@@ -88,6 +92,7 @@ class PipelineContext:
             self.output_dir = os.path.join(os.getcwd(), "debug")
 
     def analyze_roi(self, image: np.ndarray, rect: Tuple[int, int, int, int]) -> Dict[str, Any]:
+        self._refresh_detector_params()
         x, y, w, h = rect
         overlay, centers, objects, counts = self.detector.detect(
             image_bgr=image,
@@ -101,6 +106,7 @@ class PipelineContext:
         return {"rect": rect, "centers": centers, "stats": objects, "counts": counts}
 
     def analyze_whole(self, image: np.ndarray, mask: Optional[np.ndarray]) -> Dict[str, Any]:
+        self._refresh_detector_params()
         overlay, centers, objects, counts = self.detector.detect(
             image_bgr=image,
             full_mask=mask,
@@ -148,6 +154,40 @@ class PipelineContext:
         except Exception as e:
             logging.getLogger(__name__).error(f"[ERROR] Failed to load pixel_per_cm value: {e}")
             return None
+
+    def _refresh_detector_params(self, force: bool = False) -> None:
+        """Keep detector params in sync with config_profiles/detector_params.yaml."""
+        path = self._detector_params_path
+        if not os.path.exists(path):
+            return
+
+        try:
+            mtime = os.path.getmtime(path)
+        except Exception:
+            mtime = None
+
+        if not force and mtime is not None and self._detector_params_mtime is not None and mtime == self._detector_params_mtime:
+            return
+
+        try:
+            with open(path, "r") as f:
+                state = yaml.safe_load(f) or {}
+
+            self.detector.set_params(
+                split_threshold=float(state.get("split_threshold", 40)),
+                saturation_min=int(state.get("saturation_min", 50)),
+                value_min=int(state.get("value_min", 50)),
+                morph_close_radius=int(state.get("morph_close_radius", 2)),
+                morph_open_radius=int(state.get("morph_open_radius", 1)),
+                use_texture=bool(state.get("use_texture", False)),
+                use_edge_split=bool(state.get("use_edge_split", False)),
+                color_calibration=bool(state.get("auto_color_calib", False)),
+                use_hs_soft_assignment=False,
+            )
+
+            self._detector_params_mtime = mtime
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"[WARN] Failed to load detector params from {path}: {e}")
 
     def capture_from_widget(self, w, log=None) -> None:
         # grabs images + sliders + radios + overlay attrs from the widget

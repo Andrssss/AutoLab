@@ -6,10 +6,10 @@ camera_settings:
     exposure: -4.0
     gain: 0.0
     led_enabled: false
-    led_pwm: 108
+    led_pwm: 255
     offset_x: 0.0
     offset_y: 0.0
-    pixel_per_cm: null
+    pixel_per_cm: 95.12623192369179
     zoom_level: 1.0
   '1':
     blur: true
@@ -21,6 +21,8 @@ camera_settings:
     offset_y: 0.20000000000000034
     pixel_per_cm: null
     zoom_level: 1.5000000000000004
+led_enabled: false
+led_pwm: 255
 pipeline_fullscreen: false
 selected_port: COM3
 text_value: ''

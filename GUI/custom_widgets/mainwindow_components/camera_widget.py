@@ -8,6 +8,7 @@ from PyQt5.QtGui import QImage, QPixmap
 import yaml
 from File_managers import config_manager
 from GUI.custom_widgets.photo_pipeline.pipeline_widget import PipelineWidget
+from Pozitioner_and_Communicater.control_actions import ControlActions
 
 
 from GUI.custom_widgets.mainwindow_components.CameraSettingsDialog import CameraSettingsDialog
@@ -18,14 +19,13 @@ class CameraWidget(QWidget):
     stopPressed = pyqtSignal()
     snapshotPressed = pyqtSignal()
 
-    def __init__(self, g_control, log_widget, command_sender, main_window, camera_index=None, available_cams=None, parent=None):
+    def __init__(self, log_widget, main_window, control_actions: ControlActions, camera_index=None, available_cams=None, parent=None):
         super().__init__(parent)
         self.camera_index = camera_index or 0  # vagy 0, ha None
         self.available_cams = available_cams or []
         self.main_window = main_window
-        self.g_control = g_control
         self.log_widget = log_widget
-        self.command_sender = command_sender
+        self.control_actions = control_actions
         self.capture_after_led = False
         self.frames_to_skip = 0
 
@@ -163,17 +163,12 @@ class CameraWidget(QWidget):
         self.label_camera.setText("Camera Feed")
 
     def on_snapshot(self):
-        # read desired LED level (per camera)
-        cam_set = config_manager.load_camera_settings(self.camera_index)
-        s = cam_set.get("led_pwm", 255)
+        # read shared LED level (same source as manual control)
+        led_cfg = config_manager.load_led_settings(default_pwm=255, default_enabled=False)
+        s = int(led_cfg.get("led_pwm", 255)) if bool(led_cfg.get("led_enabled", False)) else 0
 
-        if not self.g_control.connected:
-            self.log_widget.append_log("[ERROR] Machine is not connected (M106 skipped).")
-        else:
-            # 1) LED ON (async)
-            cmd_on = f"M106 S{s}\n" if s > 0 else "M106 S0\n"
-            self.log_widget.append_log(f"[LED] ON -> {cmd_on.strip()}")
-            self.command_sender.sendCommand.emit(cmd_on)
+        # 1) LED ON (async) - logging is centralized in control_actions
+        self.control_actions.action_led_pwm(s)
 
         # 2) Arm a capture a few frames later so exposure/AE can settle
         #    (2-3 frames is usually fine at 30 fps: ~66-100 ms)
@@ -186,7 +181,18 @@ class CameraWidget(QWidget):
     def open_camera_settings(self):
         if self.camera_index is not None:
             self.pause_camera()
-            dialog = CameraSettingsDialog(self.camera_index,self.zoom_level,self.zoom_offset_x,self.zoom_offset_y,self.blur_enabled,self.gain,self.exposure,self.g_control, self.log_widget, self.command_sender, self)
+            dialog = CameraSettingsDialog(
+                self.camera_index,
+                self.zoom_level,
+                self.zoom_offset_x,
+                self.zoom_offset_y,
+                self.blur_enabled,
+                self.gain,
+                self.exposure,
+                self.log_widget,
+                self.control_actions,
+                self,
+            )
             dialog.exec_()
             self.resume_camera()
 
@@ -228,8 +234,7 @@ class CameraWidget(QWidget):
                         self.capture_image()
 
                         # LED OFF
-                        self.command_sender.sendCommand.emit("M106 S0\n")
-                        self.log_widget.append_log("[LED] OFF -> M106 S0")
+                        self.control_actions.action_led_pwm(0)
 
     def apply_zoom_and_blur(self, frame):
         h, w = frame.shape[:2]

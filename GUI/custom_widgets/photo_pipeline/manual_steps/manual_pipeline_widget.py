@@ -1,4 +1,5 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QStackedWidget, QSizePolicy
+from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtCore import pyqtSignal, QTimer
 from GUI.custom_widgets.photo_pipeline.manual_steps.step_capture_widget import StepCaptureWidget
 from GUI.custom_widgets.photo_pipeline.manual_steps.step_roi_widget import StepROIWidget
@@ -44,12 +45,7 @@ class PipelineWidget(QWidget):
     def load_step(self, index):
         # safely remove previous
         if self.current_step is not None:
-            # give the step a chance to stop timers/threads
-            if hasattr(self.current_step, "prepare_to_close"):
-                try:
-                    self.current_step.prepare_to_close()
-                except Exception:
-                    pass
+            self._shutdown_current_step()
             self.stack.removeWidget(self.current_step)
             self.current_step.deleteLater()
             self.current_step = None
@@ -114,3 +110,14 @@ class PipelineWidget(QWidget):
             if not proceed:
                 return  # Do not continue
         self.go_next()
+
+    def _shutdown_current_step(self):
+        if self.current_step is not None and hasattr(self.current_step, "prepare_to_close"):
+            try:
+                self.current_step.prepare_to_close()
+            except Exception:
+                pass
+
+    def closeEvent(self, event: QCloseEvent):
+        self._shutdown_current_step()
+        super().closeEvent(event)

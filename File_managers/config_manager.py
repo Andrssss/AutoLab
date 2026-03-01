@@ -29,6 +29,37 @@ def update_settings(updates: dict):
     save_settings(settings)
 
 
+def load_led_settings(default_pwm=255, default_enabled=False) -> dict:
+    settings = load_settings()
+    pwm = settings.get("led_pwm", default_pwm)
+    enabled = settings.get("led_enabled", default_enabled)
+    try:
+        pwm = int(pwm)
+    except Exception:
+        pwm = int(default_pwm)
+    pwm = max(0, min(255, pwm))
+    return {
+        "led_pwm": pwm,
+        "led_enabled": bool(enabled),
+    }
+
+
+def save_led_settings(led_pwm=None, led_enabled=None):
+    updates = {}
+    if led_pwm is not None:
+        try:
+            pwm = int(led_pwm)
+        except Exception:
+            pwm = 255
+        updates["led_pwm"] = max(0, min(255, pwm))
+
+    if led_enabled is not None:
+        updates["led_enabled"] = bool(led_enabled)
+
+    if updates:
+        update_settings(updates)
+
+
 def save_camera_settings(index, data: dict):
     settings = load_settings()
     # Ensure the camera_settings section exists
