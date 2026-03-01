@@ -1,9 +1,0 @@
-auto_color_calib: false
-morph_close_radius: 0
-morph_open_radius: 5
-num_colors: 10
-saturation_min: 177
-split_threshold: 11
-use_edge_split: false
-use_texture: false
-value_min: 63
