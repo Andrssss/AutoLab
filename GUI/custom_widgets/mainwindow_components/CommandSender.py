@@ -47,7 +47,7 @@ class CommandSender(QThread):
                     command = self.queue.popleft()
             if command is not None:
                 self.g_control.new_command(command) # priority?
-            self.msleep(50)  # short pause to avoid busy looping
+            self.msleep(15)  # supports smoother high-speed jog without extreme micro-chunking
 
         print("CommandSender close")
 

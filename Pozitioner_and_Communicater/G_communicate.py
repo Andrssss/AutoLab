@@ -42,6 +42,7 @@ class GCodeControl:
         self.running = True
         self._emergency_latched = False
         self._emergency_lock = threading.Lock()
+        self._unsupported_gcodes = set()
 
     def __del__(self):
         self.log("[INFO] GCodeControl destructor called")
@@ -114,6 +115,36 @@ class GCodeControl:
     def _command_for_log(self, command: str) -> str:
         parts = [p.strip() for p in str(command).replace("\r", "\n").split("\n") if p.strip()]
         return " | ".join(parts)
+
+    def _extract_primary_gcode(self, text: str) -> str:
+        token = (str(text or "").strip().split(" ")[0] if str(text or "").strip() else "").upper()
+        if token and len(token) >= 2 and token[0] in ("G", "M") and token[1:].isdigit():
+            return token
+        return ""
+
+    def _remember_unsupported_from_response(self, line: str):
+        low = str(line).lower()
+        if "unknown command" not in low:
+            return
+
+        # Typical Marlin format: "Unknown command: \"M906 X800 Y800\""
+        cmd_text = ""
+        first_q = line.find('"')
+        if first_q != -1:
+            second_q = line.find('"', first_q + 1)
+            if second_q != -1:
+                cmd_text = line[first_q + 1:second_q]
+
+        if not cmd_text and ":" in line:
+            cmd_text = line.split(":", 1)[1].strip()
+
+        code = self._extract_primary_gcode(cmd_text)
+        if not code:
+            return
+
+        if code not in self._unsupported_gcodes:
+            self._unsupported_gcodes.add(code)
+            self.log(f"[WARN] Firmware reported unsupported command: {code}. Future auto-apply will skip it.")
 
     def _is_emergency_allowed_command(self, command: str) -> bool:
         cmd = self._command_for_log(command).upper().strip()
@@ -635,6 +666,7 @@ class GCodeControl:
                 if self.ser.in_waiting:
                     line = self.ser.readline().decode('utf-8', errors='ignore').strip()
                     if line:
+                        self._remember_unsupported_from_response(line)
                         if line != "ok" :
                             self.log(f"[RESPONSE] {line}")
                 else:
@@ -680,6 +712,10 @@ class GCodeControl:
 
             value = settings[key]
             cmd = meta["cmd"] # Read the G-code command name from metadata, e.g. M906
+
+            if cmd in self._unsupported_gcodes:
+                self.log(f"[WARN] Skipping {cmd} for '{key}' because firmware reported it unsupported.")
+                continue
 
             if "format" in meta: # Check whether metadata contains a "format" key.
                 formatted = meta["format"](value) # Custom formatting (e.g. G1 F1500 or M204 P500 T500)
