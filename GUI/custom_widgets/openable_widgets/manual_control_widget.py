@@ -1,8 +1,9 @@
 ﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QSlider
-from PyQt5.QtCore import pyqtSignal, QTimer
+from PyQt5.QtCore import pyqtSignal, QTimer, QThread, pyqtSlot
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter, QColor, QPen
 import time
+import threading
 from GUI.custom_widgets.mainwindow_components.CommandSender import CommandSender
 import re
 
@@ -128,6 +129,7 @@ class ManualControlWidget(QWidget):
         self.idle_disable_delay_ms = 1200
 
         self.status_label = QLabel("Checking connection...")
+        self._reconnecting = False
         self._idle_disable_timer = QTimer(self)
         self._idle_disable_timer.setSingleShot(True)
         self._idle_disable_timer.setInterval(self.idle_disable_delay_ms)
@@ -262,6 +264,7 @@ class ManualControlWidget(QWidget):
         gcode_input_layout = QHBoxLayout()
         self.gcode_input = QLineEdit()
         self.gcode_input.setPlaceholderText("G-code command e.g. G28, M114...")
+        self.gcode_input.returnPressed.connect(self.send_custom_gcode)
         self.btn_send_gcode = QPushButton("Send")
         self.btn_send_gcode.clicked.connect(self.send_custom_gcode)
         gcode_input_layout.addWidget(self.gcode_input)
@@ -442,37 +445,77 @@ class ManualControlWidget(QWidget):
             self.status_label.setText(f"Connected: {port}")
             if hasattr(self, "btn_reconnect"):
                 self.btn_reconnect.setText("Reconnect")
+                self.btn_reconnect.setEnabled(True)
         else:
             self.status_label.setText("X - No connection")
             if hasattr(self, "btn_reconnect"):
                 self.btn_reconnect.setText("Connect")
+                self.btn_reconnect.setEnabled(True)
 
     def reconnect(self):
+        if self._reconnecting:
+            self.log_widget.append_log("[WARN] Reconnect already in progress – ignoring duplicate request.")
+            return
+        self._reconnecting = True
+        self.log_widget.append_log("[INFO] Reconnect button pressed.")
+
+        # Disable button to prevent double-clicks during the async attempt
+        self.btn_reconnect.setEnabled(False)
+        self.btn_reconnect.setText("Connecting...")
+        self.status_label.setText("Connecting...")
+
         # 1. Stop old CommandSender if it's running
         if self.command_sender and self.command_sender.isRunning():
-            self.log_widget.append_log("[INFO] Stopping previous CommandSender...")
+            self.log_widget.append_log("[INFO] Stopping previous CommandSender thread...")
             self.command_sender.stop()
-            self.command_sender.wait()  # Wait for it to stop
+            self.command_sender.wait()
+            self.log_widget.append_log("[INFO] Previous CommandSender stopped.")
 
-        # 2. Try to reconnect the g_control
-        self.log_widget.append_log("[INFO] Attempting to reconnect to device...")
-        self.g_control.autoconnect()
+        # 2. Run autoconnect() in a background thread so the UI stays responsive
+        self.log_widget.append_log("[INFO] Starting autoconnect in background thread...")
 
-        # 3. Create and start a new CommandSender
-        new_sender = CommandSender(self.g_control)
-        new_sender.start()
-        self.log_widget.append_log("[INFO] New CommandSender started.")
+        def _do_connect():
+            self.log_widget.append_log("[INFO] Background: calling g_control.autoconnect()...")
+            try:
+                self.g_control.autoconnect()
+            except Exception as exc:
+                self.log_widget.append_log(f"[ERROR] autoconnect() raised an exception: {exc}")
+            finally:
+                # Post result back to the main thread via a single-shot timer
+                QTimer.singleShot(0, self._on_reconnect_done)
 
-        # 4. Update self + inform main window
-        self.command_sender = new_sender
-        if hasattr(self, "main_window") and self.main_window:
-            self.main_window.set_command_sender(new_sender)
-            self.log_widget.append_log("[INFO] CommandSender reference updated in MainWindow.")
+        self._reconnect_thread = threading.Thread(target=_do_connect, daemon=True, name="reconnect-thread")
+        self._reconnect_thread.start()
+        self.log_widget.append_log("[INFO] Waiting for connection result (non-blocking)...")
 
+    @pyqtSlot()
+    def _on_reconnect_done(self):
+        """Called on the main thread once autoconnect() finishes."""
+        self.log_widget.append_log(
+            f"[INFO] autoconnect() finished. connected={self.g_control.connected}"
+        )
 
-        # 5. Update connection status on the UI
+        if self.g_control.connected:
+            # 3. Create and start a new CommandSender
+            self.log_widget.append_log("[INFO] Creating new CommandSender...")
+            new_sender = CommandSender(self.g_control)
+            new_sender.start()
+            self.log_widget.append_log("[INFO] New CommandSender started.")
+
+            # 4. Update self + inform main window
+            self.command_sender = new_sender
+            if hasattr(self, "main_window") and self.main_window:
+                self.main_window.set_command_sender(new_sender)
+                self.log_widget.append_log("[INFO] CommandSender reference updated in MainWindow.")
+            self._extruder_motion_prepared = False
+            self.log_widget.append_log("[OK] Reconnect successful.")
+        else:
+            self.log_widget.append_log("[ERROR] Reconnect failed – device not found or no response.")
+
+        # 5. Re-enable button and update status label
+        self._reconnecting = False
+        self.btn_reconnect.setEnabled(True)
         self.check_connection()
-        self._extruder_motion_prepared = False
 
     def _is_extruder_move_command(self, command: str) -> bool:
         cmd = str(command or "").strip().upper()
@@ -540,16 +583,21 @@ class ManualControlWidget(QWidget):
     def emergency_stop(self):
         self.log_widget.append_log("[EMERGENCY STOP] Immediate machine stop!")
 
-        # self.stopped = True --> usually resetting RAMPS is enough
-        self.command_sender.sendCommand.emit("M112\n")  # emergency stop
-        self.log_widget.append_log("[EMERGENCY STOP] Press the reset button on RAMPS!")
-        time.sleep(0.2)
-        #self.command_sender.sendCommand.emit("M18\n")  # motor off
-        #self.command_sender.sendCommand.emit("M84\n")  # minden motor off
-        #time.sleep(0.2)
-        # Reset command - only if firmware allows it (currently it does not)
-        # self.command_sender.sendCommand.emit("M999\n")
-        # self.log_widget.append_log("[INFO] Reset (M999) command sent to firmware.")
+        # M410 = quickstop (halts all motion immediately, firmware stays alive)
+        # M18  = disable all steppers
+        # We deliberately do NOT send M112 – that kills the firmware and requires
+        # a power cycle to recover (especially on STM32-based boards like Ender 3 V3 SE).
+        try:
+            if self.g_control.ser and self.g_control.ser.is_open:
+                self.g_control.ser.write(b"M410\n")
+                self.g_control.ser.write(b"M18\n")
+                self.g_control.ser.flush()
+                self.log_widget.append_log("[EMERGENCY STOP] M410 + M18 sent – motion stopped, connection kept.")
+            else:
+                self.log_widget.append_log("[EMERGENCY STOP] Not connected – nothing to stop.")
+        except Exception as exc:
+            self.log_widget.append_log(f"[EMERGENCY STOP] Write error: {exc}")
+        self.check_connection()
 
     def send_home_command(self):
         self.log_widget.append_log("[GCODE] G28")

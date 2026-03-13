@@ -66,25 +66,47 @@ class GCodeControl:
         self.connected = connected
         self.log(f"[INFO] Serial port connected - {self.connected}")
 
-    def _probe_marlin_connection(self, ser, timeout=3.5):
-        """Best-effort RAMPS/Marlin probe: waits for boot chatter and sends M115 if needed."""
+    def _probe_marlin_connection(self, ser, timeout=8.0):
+        """Best-effort 3D printer probe.
+        Works for boards that don't reset on DTR (STM32/Ender 3 V3 SE)
+        and boards that do (ATmega2560/RAMPS)."""
         try:
+            # Ensure DTR is HIGH so the board is NOT held in reset
             try:
-                ser.reset_input_buffer()
-                ser.reset_output_buffer()
+                ser.dtr = False
+                time.sleep(0.1)
+                ser.dtr = True
             except Exception:
                 pass
 
-            # Many boards reset on open; allow boot time.
-            time.sleep(1.2)
-            ser.write(b"\n")
-            ser.flush()
+            # Drain stale bytes and flush any partial command in the firmware parser
+            try:
+                ser.reset_input_buffer()
+                ser.reset_output_buffer()
+                ser.write(b"\n\n\n")
+                ser.flush()
+            except Exception:
+                pass
+
+            time.sleep(1.0)
 
             start = time.time()
+            m105_sent = False
             m115_sent = False
+            any_data_seen = False
 
             while (time.time() - start) < timeout:
-                if (not m115_sent) and (time.time() - start) > 0.6:
+                elapsed = time.time() - start
+
+                if (not m105_sent) and elapsed > 0.5:
+                    try:
+                        ser.write(b"M105\n")
+                        ser.flush()
+                        m105_sent = True
+                    except Exception:
+                        pass
+
+                if (not m115_sent) and elapsed > 2.0:
                     try:
                         ser.write(b"M115\n")
                         ser.flush()
@@ -92,20 +114,40 @@ class GCodeControl:
                     except Exception:
                         pass
 
+                if m105_sent and (not any_data_seen) and elapsed > 4.0 and elapsed < 4.2:
+                    try:
+                        ser.write(b"M105\n")
+                        ser.flush()
+                    except Exception:
+                        pass
+
                 if getattr(ser, "in_waiting", 0):
-                    line = ser.readline().decode('utf-8', errors='ignore').strip()
+                    try:
+                        line = ser.readline().decode('utf-8', errors='ignore').strip()
+                    except Exception:
+                        line = ""
                     if line:
+                        any_data_seen = True
                         low = line.lower()
                         if (
                             "ok" in low
                             or "firmware_name" in low
+                            or "firmware_info" in low
                             or "marlin" in low
+                            or "creality" in low
                             or "echo:" in low
+                            or "start" == low
+                            or low.startswith("t:")
+                            or low.startswith("t0:")
+                            or low.startswith("b:")
                             or ("x:" in low and "y:" in low)
                         ):
                             return True
                 else:
                     time.sleep(0.05)
+
+            if any_data_seen:
+                return True
 
             return False
         except Exception as e:
@@ -478,12 +520,31 @@ class GCodeControl:
     def autoconnect(self):
         self.log("[INFO] autoconnect() called")
 
+        # Track whether we had a live connection so we can delay after closing
+        had_connection = bool(self.ser is not None or self.connected)
+
         # Stop existing threads if they are running
         if hasattr(self, 'x_thread') and self.x_thread.is_alive():
             self.log("[INFO] Stopping previous threads before reconnect...")
             self.stop_threads()
             # running flag needs to be enabled again
             self.running = True
+        elif self.ser is not None:
+            # Threads already dead but port still held open — close it
+            try:
+                if self.ser.is_open:
+                    self.ser.close()
+                    self.log("[INFO] Closed stale serial port before reconnect.")
+            except Exception as e:
+                self.log(f"[WARN] Could not close stale port: {e}")
+            self.ser = None
+            self.set_connected(False)
+
+        # After closing the port, Windows needs a moment to release the handle
+        # and the board needs time to complete its DTR-triggered reset + boot cycle.
+        if had_connection:
+            self.log("[INFO] Waiting for board to reboot after port close (2.0 s)...")
+            time.sleep(2.0)
 
 
         # First try connecting using YAML-saved settings
@@ -519,10 +580,18 @@ class GCodeControl:
 
         def _try_connect_port(port_name, baud_list, source_label):
             for baud in baud_list:
+                ser = None
                 try:
                     self.log(f"[INFO] Trying {source_label}: {port_name} @ {baud}")
-                    ser = serial.Serial(port_name, int(baud), timeout=1, write_timeout=1, rtscts=False, dsrdtr=False)
-                    if self._probe_marlin_connection(ser, timeout=5.0):
+                    try:
+                        ser = serial.Serial(port_name, int(baud), timeout=1, write_timeout=1, rtscts=False, dsrdtr=False)
+                    except PermissionError:
+                        # Windows: previous process may still hold the handle.
+                        # Wait and retry once before giving up.
+                        self.log(f"[WARN] {port_name} access denied – waiting 3 s for OS to release handle...")
+                        time.sleep(3.0)
+                        ser = serial.Serial(port_name, int(baud), timeout=1, write_timeout=1, rtscts=False, dsrdtr=False)
+                    if self._probe_marlin_connection(ser, timeout=10.0):
                         self.ser = ser
                         self.set_connected(True)
                         if self.label_status:
@@ -536,9 +605,15 @@ class GCodeControl:
                         self.start_response_listener()
                         self.load_marlin_config()
                         return True
-                    ser.close()
+                    if ser and ser.is_open:
+                        ser.close()
                     self.log(f"[WARN] Probe timeout/no valid response: {port_name} @ {baud}")
                 except Exception as e:
+                    if ser:
+                        try:
+                            ser.close()
+                        except Exception:
+                            pass
                     self.log(f"[WARN] {source_label} failed: {port_name} @ {baud} - {e}")
             return False
 
@@ -560,15 +635,31 @@ class GCodeControl:
             self.log("[INFO] No serial device found.")
             return
 
-        for port in ports:
+        all_port_names = [p.device for p in ports]
+        self.log(f"[INFO] Available ports: {all_port_names}")
+        scan_ports = [p for p in ports if not (preferred_port and p.device == preferred_port)]
+        if not scan_ports:
+            self.log(f"[INFO] No other ports to try besides already-tried '{preferred_port}'. Connection failed.")
+            if self.label_status:
+                self.label_status.setText("Failed to connect to any serial port.")
+            self.log("[INFO] Connection failed.")
+            return
+
+        for port in scan_ports:
             port_name = port.device
             if preferred_port and port_name == preferred_port:
                 continue
             for baud in baud_rates:
+                ser = None
                 try:
                     self.log(f"[INFO] Trying: {port_name} @ {baud}")
-                    ser = serial.Serial(port_name, baud, timeout=1, write_timeout=1, rtscts=False, dsrdtr=False)
-                    if self._probe_marlin_connection(ser, timeout=5.0):
+                    try:
+                        ser = serial.Serial(port_name, baud, timeout=1, write_timeout=1, rtscts=False, dsrdtr=False)
+                    except PermissionError:
+                        self.log(f"[WARN] {port_name} access denied – waiting 3 s for OS to release handle...")
+                        time.sleep(3.0)
+                        ser = serial.Serial(port_name, baud, timeout=1, write_timeout=1, rtscts=False, dsrdtr=False)
+                    if self._probe_marlin_connection(ser, timeout=10.0):
                         self.ser = ser
                         self.set_connected(True)
                         if self.label_status:
@@ -585,10 +676,15 @@ class GCodeControl:
                         self.start_response_listener()
                         self.load_marlin_config()
                         return
-                    else:
+                    if ser and ser.is_open:
                         ser.close()
 
                 except Exception as e:
+                    if ser:
+                        try:
+                            ser.close()
+                        except Exception:
+                            pass
                     self.log(f"[ERROR] {port_name} @ {baud} - {e}")
 
         if self.label_status:
@@ -740,15 +836,49 @@ class GCodeControl:
                     self.log(f"[GCODE] {full}")
 
 
+    def force_disconnect(self):
+        """Hard-disconnect: stop motion and close the port cleanly.
+        Does NOT send M112 (kills STM32 firmware until power cycle).
+        Uses M410 (quickstop) + M18 (steppers off) instead."""
+        # 1. Stop motion directly on the wire, bypassing the queue
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.write(b"M410\n")
+                self.ser.write(b"M18\n")
+                self.ser.flush()
+                self.log("[INFO] force_disconnect: M410 + M18 sent.")
+        except Exception as e:
+            self.log(f"[WARN] force_disconnect: Could not write stop commands: {e}")
+
+        # 2. Close the port
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+                self.log("[INFO] force_disconnect: Serial port closed.")
+        except Exception as e:
+            self.log(f"[WARN] force_disconnect: Could not close serial port: {e}")
+
+        # 3. Poison the command queues so worker threads exit gracefully
+        self.running = False
+        for q in (self.x_motor_queue, self.y_motor_queue, self.aux_queue, self.control_queue):
+            try:
+                q.put_nowait("STOP")
+            except Exception:
+                pass
+
+        self.ser = None
+        self.set_connected(False)
+        self.log("[EMERGENCY] force_disconnect complete.")
+
     def stop_threads(self):
         """Stop threads cleanly and close the connection."""
         try:
-            self.send_command("M107\n") # D9 OFF
-            time.sleep(0.05)  # short delay to ensure command is sent
-            self.send_command("M0\n")  # Pause
-            time.sleep(0.05)  # short delay to ensure command is sent
-            self.send_command("M18\n")  # Motor kikapcs
-            time.sleep(0.05)  # short delay to ensure command is sent
+            self.send_command("M107\n")  # Fan/LED OFF
+            time.sleep(0.05)
+            # Do NOT send M0 — on Creality firmware it blocks serial until LCD button press,
+            # making the board unreachable on next app start without a power cycle.
+            self.send_command("M18\n")   # Motors off
+            time.sleep(0.05)
         except Exception as e:
             self.log(f"[WARN] Failed to send shutdown commands: {e}")
 

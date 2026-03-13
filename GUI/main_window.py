@@ -1,13 +1,12 @@
 ﻿import sys
 from PyQt5.QtWidgets import QMainWindow, QWidget, QAction, QVBoxLayout, QSplitter, QGroupBox
 from PyQt5.QtCore import Qt, QTimer
+import threading
 
 from GUI.custom_widgets.mainwindow_components.camera_widget import CameraWidget  # Keep import path this way for reliable module resolution.
 from GUI.custom_widgets.mainwindow_components.log_widget import LogWidget
-from GUI.custom_widgets.openable_widgets.device_settings_widget import SettingsWidget
 from GUI.custom_widgets.openable_widgets.manual_control_widget import ManualControlWidget
-from GUI.custom_widgets.openable_widgets.marlin_config_window import MarlinConfigWindow  
-from GUI.custom_widgets.openable_widgets.bacteria_detector_test_widget import BacteriaDetectorTestWidget
+from GUI.custom_widgets.openable_widgets.marlin_config_window import MarlinConfigWindow
 from File_managers.config_manager import ensure_settings_yaml_exists
 from .custom_widgets.mainwindow_components.CommandSender import CommandSender
 from GUI.custom_widgets.openable_widgets.motion_calibration_window import MotionCalibrationWindow
@@ -81,11 +80,6 @@ class MainWindow(QMainWindow):
         # Settings menu
         settings_menu = menubar.addMenu("Settings")
 
-        # Devices option
-        open_settings_action = QAction("Devices", self)
-        open_settings_action.triggered.connect(self.open_settings_dock)
-        settings_menu.addAction(open_settings_action)
-
         # Marlin config option
         marlin_config_action = QAction("Marlin config", self)
         marlin_config_action.triggered.connect(self.open_marlin_config)
@@ -135,10 +129,6 @@ class MainWindow(QMainWindow):
         open_motion_cal_action.triggered.connect(self.open_motion_calibration_window)
         open_menu.addAction(open_motion_cal_action)
 
-        # Bacteria Detector Test
-        bacteria_test_action = QAction("Bacteria Detector Test", self)
-        bacteria_test_action.triggered.connect(self.open_bacteria_detector_test)
-        open_menu.addAction(bacteria_test_action)
 
 
     def _init_widgets(self):
@@ -235,18 +225,25 @@ class MainWindow(QMainWindow):
         self.control_widget.actionCommand.connect(self.handle_manual_action)
 
     def _startup_connect_sequence(self):
-        self.log_widget.append_log("[INFO] Startup auto-connect attempt...")
-        self.g_control.autoconnect()
+        self.log_widget.append_log("[INFO] Startup auto-connect: launching in background thread...")
 
-        if not getattr(self.g_control, "connected", False):
-            self.log_widget.append_log("[WARN] Startup auto-connect failed; retrying with reconnect flow...")
+        def _do_autoconnect():
+            self.log_widget.append_log("[INFO] Startup auto-connect attempt...")
             try:
-                if hasattr(self, "control_widget") and self.control_widget:
-                    self.control_widget.reconnect()
-                else:
-                    self.g_control.autoconnect()
+                self.g_control.autoconnect()
             except Exception as e:
-                self.log_widget.append_log(f"[ERROR] Startup reconnect retry failed: {e}")
+                self.log_widget.append_log(f"[ERROR] Startup autoconnect exception: {e}")
+            finally:
+                QTimer.singleShot(0, self._on_startup_connect_done)
+
+        t = threading.Thread(target=_do_autoconnect, daemon=True, name="startup-autoconnect")
+        t.start()
+
+    def _on_startup_connect_done(self):
+        if not getattr(self.g_control, "connected", False):
+            self.log_widget.append_log("[WARN] Startup auto-connect failed; no device found.")
+        else:
+            self.log_widget.append_log("[OK] Startup auto-connect succeeded.")
 
         if hasattr(self, "control_widget") and self.control_widget:
             try:
@@ -276,13 +273,6 @@ class MainWindow(QMainWindow):
     """
         -------- OPEN ELEMENTS -----------
     """
-    def open_settings_dock(self):
-        self.settings_widget = SettingsWidget(self.g_control, self.camera_widget, self.available_cams) #
-        self.settings_widget.setWindowTitle("Settings")
-        self.settings_widget.setAttribute(Qt.WA_DeleteOnClose)
-        self.settings_widget.resize(360, 420)
-        self.settings_widget.show()
-
     def open_marlin_config(self):
         self.marlin_config_window = MarlinConfigWindow(self.g_control,self.log_widget)
         self.marlin_config_window.show()
@@ -301,14 +291,19 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.log_widget.append_log("[INFO] Main window is closing")
 
-        try:
-            if hasattr(self, "control_actions") and self.control_actions:
-                self.control_actions.send_emergency_stop()
-                self.log_widget.append_log("[INFO] Emergency stop sent on app close.")
-        except Exception as e:
-            self.log_widget.append_log(f"[WARN] Failed to send emergency stop on close: {e}")
-
+        # Graceful shutdown: stop motion + disable steppers, but do NOT send M112.
+        # M112 kills Creality/STM32 firmware and requires a power cycle to recover.
         if self.g_control:
+            try:
+                if self.g_control.ser and self.g_control.ser.is_open:
+                    self.g_control.ser.write(b"M410\n")   # quickstop (abort motion)
+                    self.g_control.ser.write(b"M107\n")   # fan/LED off
+                    self.g_control.ser.write(b"M18\n")    # steppers off
+                    self.g_control.ser.flush()
+                    self.log_widget.append_log("[INFO] Sent M410+M107+M18 for graceful shutdown.")
+            except Exception as e:
+                self.log_widget.append_log(f"[WARN] Failed to send shutdown commands: {e}")
+
             try:
                 self.log_widget.append_log("[INFO] Stopping threads in MainWindow.closeEvent()...")
                 self.g_control.stop_threads()
@@ -352,12 +347,7 @@ class MainWindow(QMainWindow):
         self._config_refs = getattr(self, "_config_refs", [])
         self._config_refs.append(self.motion_cal_win)
 
-    def open_bacteria_detector_test(self):
-        self.bacteria_test_win = BacteriaDetectorTestWidget()
-        self.bacteria_test_win.show()
-        # keep a ref so it isn't GC'd
-        self._config_refs = getattr(self, "_config_refs", [])
-        self._config_refs.append(self.bacteria_test_win)
+
 
 
 
