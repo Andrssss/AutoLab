@@ -17,6 +17,8 @@ Thumbs.db
 .env
 *.yaml
 *.md
+/changelog
+/.github
 
 # Random things
 mini.py

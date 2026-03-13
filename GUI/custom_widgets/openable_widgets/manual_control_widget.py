@@ -296,13 +296,13 @@ class ManualControlWidget(QWidget):
         step_mm = self._current_jog_step_mm()
         command = None
         if direction == "up":
-            command = f"G91\nG1 X{step_mm:g} F{self.jog_feedrate}\n"       # X+
-        elif direction == "down":
-            command = f"G91\nG1 X-{step_mm:g} F{self.jog_feedrate}\n"      # X-
-        elif direction == "right":
-            command = f"G91\nG1 Y{step_mm:g} F{self.jog_feedrate}\n"       # Y+
-        elif direction == "left":
             command = f"G91\nG1 Y-{step_mm:g} F{self.jog_feedrate}\n"      # Y-
+        elif direction == "down":
+            command = f"G91\nG1 Y{step_mm:g} F{self.jog_feedrate}\n"       # Y+
+        elif direction == "right":
+            command = f"G91\nG1 X{step_mm:g} F{self.jog_feedrate}\n"       # X+
+        elif direction == "left":
+            command = f"G91\nG1 X-{step_mm:g} F{self.jog_feedrate}\n"      # X-
 
         if command:
             log_cmd = " | ".join([p.strip() for p in command.strip().splitlines() if p.strip()])

@@ -25,7 +25,7 @@ DEFAULT_SETTINGS = {
         "Y": 500,
         "Z": 100,
         "E": 10000
-    }
+    },
 }
 
 MARLIN_COMMAND_MAP = {

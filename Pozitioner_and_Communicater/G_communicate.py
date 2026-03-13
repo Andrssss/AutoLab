@@ -44,6 +44,14 @@ class GCodeControl:
         self._emergency_lock = threading.Lock()
         self._unsupported_gcodes = set()
 
+        # Machine limits – populated after connecting
+        self.machine_limits: dict = {}
+        self._current_pos: dict = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+        self._relative_mode: bool = False
+        self._home_requested: bool = False
+        self._endstop_detection_pending: bool = False
+        self._endstop_pos_event: threading.Event = threading.Event()
+
     def __del__(self):
         self.log("[INFO] GCodeControl destructor called")
 
@@ -409,6 +417,9 @@ class GCodeControl:
                     elif name == "CONTROL":
                         if not command.lstrip().upper().startswith("M106"):
                             self.log(f"[CONTROL] -> {cmd_log}")
+                        # G28 can take 30+ seconds; don't wait at Python level.
+                        # Marlin executes queued commands in order, so M114
+                        # queued after G28 will naturally run after homing finishes.
                         self.send_command(command, wait_for_completion=self._is_xy_move_command(command))
                 except queue.Empty:
                     continue
@@ -481,6 +492,7 @@ class GCodeControl:
                 self.log(f"[EMERGENCY] Queue reject while latched: {self._command_for_log(command)}")
                 return False
 
+            command = self._clamp_gcode_command(command)
             cmd_upper = command.upper().strip()
             cmd_log = self._command_for_log(cmd_upper)
             is_jog = self._is_manual_jog_command(cmd_upper)
@@ -511,6 +523,9 @@ class GCodeControl:
             else:
                 self.log(f"[DISPATCH] CONTROL_queue <- {cmd_log}")
                 self.send_to_control(cmd_upper)
+                if cmd_upper.startswith("G28"):
+                    self._home_requested = True
+                    self.send_to_control("M114")
                 return True
         else:
             self.log("[WARN] new_command - not connected")
@@ -763,7 +778,11 @@ class GCodeControl:
                     line = self.ser.readline().decode('utf-8', errors='ignore').strip()
                     if line:
                         self._remember_unsupported_from_response(line)
-                        if line != "ok" :
+                        self._sync_pos_from_response(line)
+                        if "paused for user" in line.lower():
+                            self.log("[INFO] Printer paused for user – sending M108 to resume.")
+                            self.send_command("M108\n")
+                        elif line != "ok":
                             self.log(f"[RESPONSE] {line}")
                 else:
                     time.sleep(0.05)
@@ -771,14 +790,185 @@ class GCodeControl:
                 self.log(f"[ERROR] Response read error: {e}")
                 break
 
+    def _sync_pos_from_response(self, line: str):
+        import re
+        if not any(f"{ax}:" in line for ax in ("X", "Y", "Z")):
+            return
+        # M114 format: 'X:212.00 Y:211.87 Z:10.00 E:0.00 Count X:16960 Y:16950 Z:4000'
+        # Only parse the mm part before 'Count' to avoid capturing step values.
+        mm_part = line.split("Count")[0]
+        parsed = {}
+        for match in re.finditer(r'([XYZ]):([-\d.]+)', mm_part):
+            axis = match.group(1)
+            try:
+                parsed[axis] = float(match.group(2))
+            except ValueError:
+                pass
+        for ax, val in parsed.items():
+            self._current_pos[ax] = val
+        if self._endstop_detection_pending and parsed:
+            self.machine_limits["position_min"] = dict(parsed)
+            self._endstop_detection_pending = False
+            self._endstop_pos_event.set()
+
+    def _load_machine_limits(self, settings: dict):
+        mf = settings.get("max_feedrate", {})
+        self.machine_limits = {
+            "max_feedrate_mmmin": {
+                ax: float(v) * 60.0
+                for ax, v in mf.items()
+                if ax in "XYZE"
+            },
+            "position_min": {},
+            "position_max": {},
+        }
+        fr = self.machine_limits["max_feedrate_mmmin"]
+        if fr:
+            self.log(f"[INFO] Feedrate caps loaded (mm/min): {fr}")
+
+    def _clamp_gcode_command(self, command: str) -> str:
+        if not self.machine_limits:
+            return command
+        lines = []
+        for raw in command.replace("\r", "\n").split("\n"):
+            line = raw.strip().upper()
+            if not line:
+                continue
+            if line.startswith("G90"):
+                self._relative_mode = False
+            elif line.startswith("G91"):
+                self._relative_mode = True
+            elif line.startswith("G28"):
+                self._current_pos = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+            elif line.startswith("G92"):
+                for tok in line.split()[1:]:
+                    if tok and tok[0] in "XYZ":
+                        try:
+                            self._current_pos[tok[0]] = float(tok[1:])
+                        except ValueError:
+                            pass
+            elif line.startswith("G0") or line.startswith("G1"):
+                line = self._clamp_motion_line(line)
+            lines.append(line)
+        return "\n".join(lines)
+
+    def _clamp_motion_line(self, line: str) -> str:
+        tokens = line.split()
+        if not tokens:
+            return line
+
+        max_feedrate_mmmin = self.machine_limits.get("max_feedrate_mmmin", {})
+        pos_min = self.machine_limits.get("position_min", {})
+        pos_max = self.machine_limits.get("position_max", {})
+
+        moving_axes = [t[0] for t in tokens[1:] if t and t[0] in "XYZE"]
+        caps = [max_feedrate_mmmin[ax] for ax in moving_axes if ax in max_feedrate_mmmin]
+        feedrate_cap = min(caps) if caps else float("inf")
+
+        result = [tokens[0]]
+        for tok in tokens[1:]:
+            if not tok:
+                continue
+            letter = tok[0]
+
+            if letter == "F":
+                try:
+                    f_val = float(tok[1:])
+                    f_clamped = min(f_val, feedrate_cap)
+                    if f_clamped < f_val - 0.5:
+                        self.log(f"[LIMIT] Feedrate clamped {f_val:.0f} -> {f_clamped:.0f} mm/min (axes: {moving_axes})")
+                    result.append(f"F{f_clamped:.0f}")
+                except ValueError:
+                    result.append(tok)
+
+            elif letter in "XYZ" and not self._relative_mode:
+                try:
+                    pos_val = float(tok[1:])
+                    lo = pos_min.get(letter)
+                    hi = pos_max.get(letter)
+                    clamped = pos_val
+                    if hi is not None:
+                        clamped = min(clamped, hi)
+                    if lo is not None:
+                        clamped = max(clamped, lo)
+                    if abs(clamped - pos_val) > 1e-4:
+                        self.log(f"[LIMIT] {letter} position clamped {pos_val:.3f} -> {clamped:.3f} mm")
+                    result.append(f"{letter}{clamped:.3f}")
+                    self._current_pos[letter] = clamped
+                except ValueError:
+                    result.append(tok)
+
+            elif letter in "XYZ" and self._relative_mode:
+                try:
+                    delta = float(tok[1:])
+                    cur = self._current_pos.get(letter, 0.0)
+                    new_pos = cur + delta
+                    lo = pos_min.get(letter)
+                    hi = pos_max.get(letter)
+                    if hi is not None:
+                        new_pos = min(new_pos, hi)
+                    if lo is not None:
+                        new_pos = max(new_pos, lo)
+                    clamped_delta = new_pos - cur
+                    if abs(clamped_delta - delta) > 1e-4:
+                        self.log(f"[LIMIT] {letter} relative delta clamped {delta:.3f} -> {clamped_delta:.3f} mm")
+                    result.append(f"{letter}{clamped_delta:.3f}")
+                    self._current_pos[letter] = new_pos
+                except ValueError:
+                    result.append(tok)
+
+            else:
+                result.append(tok)
+
+        return " ".join(result)
+
     def load_marlin_config(self):
-        # Load and apply settings
         try:
             marlin_config = marlin_config_manager.load_settings()
             self.apply_marlin_settings(marlin_config)
+            self._load_machine_limits(marlin_config)
             self.log("[INFO] Marlin settings loaded and applied.")
         except Exception as e:
             self.log(f"[ERROR] Failed to load Marlin settings: {e}")
+        self._run_endstop_detection()
+
+    def _run_endstop_detection(self):
+        """Drive to X/Y physical endstops, capture position, store as min limits in memory."""
+        def _run():
+            self.log("[INFO] Endstop detection: disabling soft endstops, driving to X/Y endstops.")
+            self._endstop_pos_event.clear()
+            self._endstop_detection_pending = False
+
+            # Disable soft endstops and set a fake origin so Marlin allows the move
+            self.send_command("M211 S0")
+            self.send_command("G92 X0 Y0 Z0")
+            time.sleep(0.5)
+
+            # Drive far negative — steppers stall at physical endstops
+            self.send_command("G90")
+            self.send_command("G1 X-500 Y-500 F3000")
+
+            # M400 waits for all motion to finish; arm the flag then read position
+            self.send_command("M400")
+            self._endstop_detection_pending = True
+            self.send_command("M114")
+
+            if not self._endstop_pos_event.wait(timeout=60):
+                self.log("[WARN] Endstop detection timed out — no M114 response received.")
+                self._endstop_detection_pending = False
+                self.send_command("M211 S1")
+                return
+
+            self.log(f"[INFO] Physical min limits set: {self.machine_limits.get('position_min', {})}")
+
+            # Back off from endstops
+            self.send_command("G91")
+            self.send_command("G1 X10 Y10 F1000")
+            time.sleep(3)
+            self.send_command("G90")
+            self.send_command("M211 S1")
+
+        threading.Thread(target=_run, daemon=True).start()
 
 
     def log(self, message):
