@@ -195,31 +195,15 @@ class ManualControlWidget(QWidget):
 
         layout.addLayout(jog_speed_layout)
 
-        # IN/OUT buttons (Z-tengely mozgatás)
+        # IN/OUT buttons
         in_out_layout = QVBoxLayout()
         btn_in = QPushButton("IN")
         btn_out = QPushButton("OUT")
         in_out_layout.addWidget(btn_in)
         in_out_layout.addWidget(btn_out)
-        btn_in.clicked.connect(self._move_z_in)
-        btn_out.clicked.connect(self._move_z_out)
+        btn_in.clicked.connect(lambda: self.actionCommand.emit("in"))
+        btn_out.clicked.connect(lambda: self.actionCommand.emit("out"))
         layout.addLayout(in_out_layout)
-
-    def _move_z_in(self):
-        if self.stopped:
-            return
-        step_mm = self._current_jog_step_mm()
-        command = f"G91\nG1 Z-{step_mm:g} F{self.jog_feedrate}\n"
-        self.log_widget.append_log(f"[GCODE] {command.strip().replace(chr(10), ' | ')}")
-        self.command_sender.sendCommand.emit(command)
-
-    def _move_z_out(self):
-        if self.stopped:
-            return
-        step_mm = self._current_jog_step_mm()
-        command = f"G91\nG1 Z{step_mm:g} F{self.jog_feedrate}\n"
-        self.log_widget.append_log(f"[GCODE] {command.strip().replace(chr(10), ' | ')}")
-        self.command_sender.sendCommand.emit(command)
 
         # Start/Stop at the bottom
         bottom_layout = QHBoxLayout()
