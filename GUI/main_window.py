@@ -281,10 +281,17 @@ class MainWindow(QMainWindow):
     def handle_manual_action(self, action):
         if action == "save":
             self.log_widget.append_log("[CONTROL_CMD] Manual control save requested")
-        elif action == "in":
-            self.log_widget.append_log("[CONTROL_CMD] Manual control action IN requested")
-        elif action == "out":
-            self.log_widget.append_log("[CONTROL_CMD] Manual control action OUT requested")
+        elif action in ("in", "out"):
+            # Z-tengely vezérlés: IN = Z+, OUT = Z-
+            step_mm = getattr(self.control_widget, "jog_step_mm", 15.0)
+            feedrate = getattr(self.control_widget, "jog_feedrate", 3000)
+            if action == "in":
+                cmd = f"G91\nG1 Z{step_mm:g} F{feedrate}\n"
+                self.log_widget.append_log(f"[GCODE] G91 | G1 Z+{step_mm:g} F{feedrate}")
+            else:
+                cmd = f"G91\nG1 Z-{step_mm:g} F{feedrate}\n"
+                self.log_widget.append_log(f"[GCODE] G91 | G1 Z-{step_mm:g} F{feedrate}")
+            self.command_sender.sendCommand.emit(cmd)
         else:
             self.log_widget.append_log(f"[CONTROL_CMD] Manual control action requested: {action}")
 

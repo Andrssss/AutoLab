@@ -205,6 +205,8 @@ class ManualControlWidget(QWidget):
         btn_out.clicked.connect(lambda: self.actionCommand.emit("out"))
         layout.addLayout(in_out_layout)
 
+    # Z-tengely vezérlés logikáját a signal fogadó oldalán kell kezelni
+
         # Start/Stop at the bottom
         bottom_layout = QHBoxLayout()
         btn_start = QPushButton("Start")
