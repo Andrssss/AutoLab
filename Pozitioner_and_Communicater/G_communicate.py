@@ -29,11 +29,13 @@ class GCodeControl:
         # Command queues for each thread
         self.x_motor_queue = queue.Queue()
         self.y_motor_queue = queue.Queue()
+        self.z_motor_queue = queue.Queue()
         self.aux_queue = queue.Queue()
         self.control_queue = queue.Queue()
         self._worker_busy = {
             "X_motor": False,
             "Y_motor": False,
+            "Z_motor": False,
             "AUX": False,
             "CONTROL": False,
         }
@@ -211,7 +213,7 @@ class GCodeControl:
             return bool(self._emergency_latched)
 
     def are_command_threads_alive(self) -> bool:
-        thread_names = ("x_thread", "y_thread", "aux_thread", "control_thread")
+        thread_names = ("x_thread", "y_thread", "z_thread", "aux_thread", "control_thread")
         for name in thread_names:
             thread = getattr(self, name, None)
             if thread is None or not thread.is_alive():
@@ -225,7 +227,12 @@ class GCodeControl:
 
     def has_pending_motion_commands(self) -> bool:
         try:
-            if not self.x_motor_queue.empty() or not self.y_motor_queue.empty() or not self.control_queue.empty():
+            if (
+                not self.x_motor_queue.empty()
+                or not self.y_motor_queue.empty()
+                or not self.z_motor_queue.empty()
+                or not self.control_queue.empty()
+            ):
                 return True
         except Exception:
             return False
@@ -234,6 +241,7 @@ class GCodeControl:
             return bool(
                 self._worker_busy.get("X_motor")
                 or self._worker_busy.get("Y_motor")
+                or self._worker_busy.get("Z_motor")
                 or self._worker_busy.get("CONTROL")
             )
 
@@ -291,6 +299,7 @@ class GCodeControl:
         removed = 0
         removed += self._filter_queue(self.x_motor_queue, lambda _cmd: True)
         removed += self._filter_queue(self.y_motor_queue, lambda _cmd: True)
+        removed += self._filter_queue(self.z_motor_queue, lambda _cmd: True)
         removed += self._filter_queue(self.aux_queue, lambda _cmd: True)
         removed += self._filter_queue(self.control_queue, lambda _cmd: True)
         return removed
@@ -321,12 +330,14 @@ class GCodeControl:
         removed = 0
         removed += self._coalesce_axis_jog_queue(self.x_motor_queue)
         removed += self._coalesce_axis_jog_queue(self.y_motor_queue)
+        removed += self._coalesce_axis_jog_queue(self.z_motor_queue)
         return removed
 
     def clear_pending_motion_commands(self) -> int:
         removed = 0
         removed += self._filter_queue(self.x_motor_queue, self._is_motion_command)
         removed += self._filter_queue(self.y_motor_queue, self._is_motion_command)
+        removed += self._filter_queue(self.z_motor_queue, self._is_motion_command)
         removed += self._filter_queue(self.control_queue, self._is_motion_command)
         return removed
 

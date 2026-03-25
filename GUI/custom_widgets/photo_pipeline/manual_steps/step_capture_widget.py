@@ -61,27 +61,23 @@ class StepCaptureWidget(QWidget):
         row_open.addStretch()
         controls_layout.addLayout(row_open)
 
-        # --- Petri shape selector (Round / Rectangle / Auto) ---
+        # --- Petri shape selector (Round / Rectangle) ---
         shape_layout = QHBoxLayout()
         shape_layout.addWidget(QLabel("Petri shape:"))
 
         self.radio_round = QRadioButton("Round")
         self.radio_rectangle = QRadioButton("Rectangle")
-        self.radio_auto = QRadioButton("Auto")
         self.radio_round.setChecked(True)
 
         self.shape_group = QButtonGroup(self)
         self.shape_group.addButton(self.radio_round)
         self.shape_group.addButton(self.radio_rectangle)
-        self.shape_group.addButton(self.radio_auto)
 
         self.radio_round.toggled.connect(lambda checked: self.on_shape_changed("round", checked))
         self.radio_rectangle.toggled.connect(lambda checked: self.on_shape_changed("rectangle", checked))
-        self.radio_auto.toggled.connect(lambda checked: self.on_shape_changed("auto", checked))
 
         shape_layout.addWidget(self.radio_round)
         shape_layout.addWidget(self.radio_rectangle)
-        shape_layout.addWidget(self.radio_auto)
         shape_layout.addStretch()
         controls_layout.addLayout(shape_layout)
 
@@ -230,8 +226,7 @@ class StepCaptureWidget(QWidget):
         self.context.filtered_image = self.processed_image
 
         # Save Petri detection parameters + shape mode
-        shape_mode = "auto" if self.radio_auto.isChecked() else (
-            "rectangle" if self.radio_rectangle.isChecked() else "round")
+        shape_mode = "rectangle" if self.radio_rectangle.isChecked() else "round"
         self.context.settings["petri_params"] = {
             "circle_blur": self.circle_blur_slider.value(),
             "circle_sensitivity": self.circle_slider.value(),
@@ -257,9 +252,7 @@ class StepCaptureWidget(QWidget):
 
         # restore mode
         mode = petri_params.get("shape_mode", "round")
-        if mode == "auto":
-            self.radio_auto.setChecked(True)
-        elif mode == "rectangle":
+        if mode == "rectangle":
             self.radio_rectangle.setChecked(True)
         else:
             self.radio_round.setChecked(True)

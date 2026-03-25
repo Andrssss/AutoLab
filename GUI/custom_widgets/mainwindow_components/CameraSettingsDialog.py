@@ -7,8 +7,6 @@ import platform
 from functools import partial
 from Pozitioner_and_Communicater.control_actions import ControlActions
 
-from GUI.custom_widgets.mainwindow_components.PixelPerCmMeasureDialog import PixelPerCmMeasureDialog
-
 
 class CameraSettingsDialog(QDialog):
     def __init__(self, camera_index, zoom_level, zoom_offset_x, zoom_offset_y, blur_enabled, gain, exposure,
@@ -150,8 +148,6 @@ class CameraSettingsDialog(QDialog):
         led_layout.addLayout(row2)
         layout.addLayout(led_layout)
 
-        self.btn_measure_cm = QPushButton("Calibrate cm")
-        layout.addWidget(self.btn_measure_cm)
 
 
 
@@ -234,8 +230,6 @@ class CameraSettingsDialog(QDialog):
         self.btn_focus_down.clicked.connect(self.decrease_focus)
         self.btn_reset.clicked.connect(self.reset_to_defaults)
 
-        # cm measurement
-        self.btn_measure_cm.clicked.connect(self.launch_measure_dialog)
 
 
 
@@ -308,12 +302,10 @@ class CameraSettingsDialog(QDialog):
     def increase_focus(self):
         self.zoom_level = min(self.zoom_level + 0.1, 5.0)
         self.log_widget.append_log(f"[CAMERA] ZOOM: Zoom in -> {self.zoom_level:.1f}x")
-        self.invalidate_pixel_per_cm()
 
     def decrease_focus(self):
         self.zoom_level = max(self.zoom_level - 0.1, 1.0)
         self.log_widget.append_log(f"[CAMERA] ZOOM: Zoom out -> {self.zoom_level:.1f}x")
-        self.invalidate_pixel_per_cm()
 
 
     def apply_blur(self):
@@ -370,41 +362,6 @@ class CameraSettingsDialog(QDialog):
             self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
         self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
 
-    def launch_measure_dialog(self):
-        if self.current_frame is None:
-            self.log_widget.append_log("[ERROR] CAMERA: No frame available for measurement.")
-            return
-        frame_copy = self.current_frame.copy()
-        dialog = PixelPerCmMeasureDialog(frame_copy, self)
-        dialog.setModal(True)
-        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
-        dialog.resize(800, 600)
-        dialog.show()
-        dialog.exec_()
-
-        if dialog.result() == QDialog.Accepted:
-            pixel_per_cm = dialog.get_pixel_per_cm()
-            if pixel_per_cm:
-                self.pixel_per_cm = pixel_per_cm
-                self.log_widget.append_log(f"[CAMERA] SAVE: 1 cm = {pixel_per_cm:.2f} px")
-
-
-    def invalidate_pixel_per_cm(self):
-        from File_managers import config_manager
-
-        self.log_widget.append_log("[CAMERA] INFO: pixel_per_cm invalidated due to zoom")
-        self.pixel_per_cm = None
-
-        # Load, modify, and save in settings.yaml
-        settings = config_manager.load_settings()
-        cam_id = str(self.camera_index)
-
-        if "camera_settings" in settings and cam_id in settings["camera_settings"]:
-            if "pixel_per_cm" in settings["camera_settings"][cam_id]:
-                del settings["camera_settings"][cam_id]["pixel_per_cm"]
-                config_manager.save_settings(settings)
-                self.log_widget.append_log(f"[CAMERA] YAML: pixel_per_cm removed for camera (ID: {cam_id})")
-
 
     def send_fan_pwm(self, s_value: int):
         """Send M106 S<0..255> safely (only when connected)."""
@@ -452,7 +409,6 @@ class CameraSettingsDialog(QDialog):
             "blur": self.blur_enabled,
             "gain": self.gain,
             "exposure": self.exposure,
-            "pixel_per_cm": getattr(self, "pixel_per_cm", None),
             "led_pwm": getattr(self, "led_last_pwm", 255),
             "led_enabled": getattr(self, "led_enabled", False),
         }

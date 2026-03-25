@@ -53,7 +53,6 @@ class StepSummaryWidget(QWidget):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(8)
         
-        self.measure_btn = QPushButton("Measure 1 cm")
         self.prev_btn = QPushButton("Previous")
         self.next_btn = QPushButton("Next")
         
@@ -66,15 +65,11 @@ class StepSummaryWidget(QWidget):
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
 
-        self.measure_btn.clicked.connect(self.open_measure_dialog)
         self.next_btn.clicked.connect(self.try_advance)
 
         self.display_image_with_rois()
         self.display_roi_points()
         QTimer.singleShot(0, self._refresh_view)
-
-        # Automatically load pixel per cm from config
-        self.load_pixel_per_cm_from_config()
 
     def _refresh_view(self):
         self.display_image_with_rois()
@@ -87,20 +82,6 @@ class StepSummaryWidget(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.display_image_with_rois()
-
-    def load_pixel_per_cm_from_config(self):
-        try:
-            cam_index = self.context.settings.get("camera_index", 0)
-            all_settings = config_manager.load_camera_settings()
-
-            cam_settings = all_settings.get("camera_settings", {}).get(str(cam_index), {})
-            pixel_per_cm = cam_settings.get("pixel_per_cm", None)
-
-            if pixel_per_cm is not None:
-                self.context.pixel_per_cm = pixel_per_cm
-                self.log_widget.append_log(f"[INFO] pixel_per_cm loaded from YAML: {pixel_per_cm:.2f} px/cm")
-        except Exception as e:
-            self.log_widget.append_log(f"[ERROR] Failed to load pixel_per_cm: {e}")
 
     def display_image_with_rois(self):
         # Prefer the annotated display image from ROI widget if available
@@ -148,18 +129,6 @@ class StepSummaryWidget(QWidget):
 
 
     def try_advance(self):
-        self.load_pixel_per_cm_from_config()
-        px_per_cm = getattr(self.context, "pixel_per_cm", None)
-
-        if px_per_cm is None:
-            QMessageBox.warning(
-                self,
-                "Missing value",
-                "This camera has no configured pixel-per-cm value for 1 cm.\n"
-                "Please measure it first in the calibration window."
-            )
-            return False
-
         try:
             # Save ROI points under dish_id = 1
             roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
@@ -172,52 +141,7 @@ class StepSummaryWidget(QWidget):
             return False
 
         return True
-
-    def open_measure_dialog(self):
-        from GUI.custom_widgets.mainwindow_components.PixelPerCmMeasureDialog import PixelPerCmMeasureDialog
-
-        if self.context.image is None or self.context.image.size == 0:
-            QMessageBox.warning(self, "Error", "No current image found.")
-            return
-
-        frame_copy = self.context.image.copy()
-        self.dialog = PixelPerCmMeasureDialog(frame_copy, self)
-
-        # Set event handlers
-        self.dialog.accepted.connect(self.handle_dialog_accepted)
-        self.dialog.rejected.connect(lambda: self.log_widget.append_log("[INFO] Calibration canceled."))
-
-        self.dialog.setModal(True)
-        self.dialog.setWindowFlags(self.dialog.windowFlags() | Qt.WindowStaysOnTopHint)
-        self.dialog.resize(800, 600)
-        self.dialog.show()
-
-    def handle_dialog_accepted(self):
-        pixel_per_cm = self.dialog.get_pixel_per_cm()
-        if pixel_per_cm:
-            self.context.pixel_per_cm = pixel_per_cm
-
-            # Save into settings.yaml
-            cam_index = self.context.settings.get("camera_index", 0)
-            try:
-                all_settings = config_manager.load_camera_settings()
-
-                # Ensure camera_settings section exists
-                if "camera_settings" not in all_settings:
-                    all_settings["camera_settings"] = {}
-
-                if str(cam_index) not in all_settings["camera_settings"]:
-                    all_settings["camera_settings"][str(cam_index)] = {}
-
-                all_settings["camera_settings"][str(cam_index)]["pixel_per_cm"] = pixel_per_cm
-
-                config_manager.save_camera_settings(cam_index, all_settings["camera_settings"][str(cam_index)])
-
-                QMessageBox.information(self, "Saved", f"1 cm = {pixel_per_cm:.2f} px saved")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"[ERROR] Failed to save calibration: {e}")
-
-
+     
     def _apply_dish_outline(self, img, color=(0, 255, 255), thickness=2):
         """
         Draw the Petri dish outline (from context.mask) on img in-place.

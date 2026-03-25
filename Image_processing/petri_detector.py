@@ -5,11 +5,10 @@ import numpy as np
 class PetriDetector:
     """
     Detects a round or rectangular Petri dish and returns a binary mask.
-    Modes: 'round', 'rectangle', or 'auto'
-    - Auto tries both and picks the higher-confidence result (rectangle preferred on ties).
+    Modes: 'round', 'rectangle'
     """
     def __init__(self, mode: str = "round"):
-        self.mode = mode  # 'round' | 'rectangle' | 'auto'
+        self.mode = mode  # 'round' | 'rectangle'
         self.blur = 7
         self.sensitivity = 30
         self._last_metrics = {}  # debug/telemetry
@@ -22,7 +21,7 @@ class PetriDetector:
 
     def set_mode(self, mode: str):
         mode = (mode or "").lower()
-        if mode not in ("round", "rectangle", "auto"):
+        if mode not in ("round", "rectangle"):
             mode = "round"
         self.mode = mode
 
@@ -51,16 +50,9 @@ class PetriDetector:
             mask, score, metrics = self._detect_round(gray, edges, (h, w))
         elif self.mode == "rectangle":
             mask, score, metrics = self._detect_rectangle(gray, edges, (h, w))
-        else:  # auto (prefer rectangle on ties)
-            r_mask, r_score, r_metrics = self._detect_round(gray, edges, (h, w))
-            q_mask, q_score, q_metrics = self._detect_rectangle(gray, edges, (h, w))
-
-            if r_mask is None and q_mask is None:
-                mask, score, metrics = None, -1.0, {"mode": "auto", "picked": "none"}
-            elif q_mask is not None and (r_mask is None or q_score >= r_score):
-                mask, score, metrics = q_mask, q_score, {"mode": "auto", "picked": "rectangle", **q_metrics}
-            else:
-                mask, score, metrics = r_mask, r_score, {"mode": "auto", "picked": "round", **r_metrics}
+        else:
+            self._last_metrics = {"result": "none", "mode": self.mode}
+            return None
 
         if mask is None:
             self._last_metrics = {"result": "none", "mode": self.mode}
@@ -89,9 +81,8 @@ class PetriDetector:
         max_r = int(min(h, w) * 0.90 // 2)
 
         mask = np.zeros_like(gray, dtype=np.uint8)
-        best_score = -1.0
         best_circle = None
-
+        max_radius = -1
         circles = cv2.HoughCircles(
             gray, cv2.HOUGH_GRADIENT, dp=dp, minDist=min_dist,
             param1=150, param2=param2, minRadius=min_r, maxRadius=max_r
@@ -99,22 +90,18 @@ class PetriDetector:
 
         if circles is not None and len(circles) > 0:
             circles = np.uint16(np.around(circles[0, :]))
-            # Score each circle: prefer centered & large
-            cx, cy = w / 2, h / 2
             for c in circles:
                 x, y, r = int(c[0]), int(c[1]), int(c[2])
-                area = np.pi * (r ** 2)
-                center_off = (x - cx) ** 2 + (y - cy) ** 2
-                center_penalty = 1.0 / (1.0 + center_off / (0.1 * (max(h, w) ** 2)))
-                score = float(area * center_penalty)
-                if score > best_score:
-                    best_score = score
+                if r > max_radius:
+                    max_radius = r
                     best_circle = (x, y, r)
 
         if best_circle is not None:
             x, y, r = best_circle
             cv2.circle(mask, (x, y), r, 255, -1)
-            return mask, best_score, {"detector": "round_hough"}
+            # Score: area of the detected circle
+            best_score = float(np.pi * (r ** 2))
+            return mask, best_score, {"detector": "round_hough", "radius": r}
 
         # Fallback: contour-based
         contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

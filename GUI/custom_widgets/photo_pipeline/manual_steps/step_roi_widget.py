@@ -9,7 +9,6 @@ import json
 import yaml
 from datetime import datetime
 from Image_processing.BacteriaDetector import BacteriaDetector
-from Image_processing.auto_k import compute_autok_centers, classify_contour_to_center
 
 class StepROIWidget(QWidget):
     MODE_POINTS = "points"
@@ -18,7 +17,7 @@ class StepROIWidget(QWidget):
     def __init__(self, context, image_path=None, log_widget=None, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumSize(960, 620)
+        self.setMinimumSize(900, 620)
         self._normal_window_sized = False
         self.context = context
         self.log_widget = log_widget
@@ -39,7 +38,7 @@ class StepROIWidget(QWidget):
 
         # analyzer drawings (we store contours, not boxes)
         self.detected_contours = []  # list of polygons (list[list[x,y]])
-        self.detected_contour_labels = []  # parallel list: Auto-K class index per contour (or None)
+        self.detected_contour_labels = []
 
         self.selected_point_radius = 12  # size of the selected point
         self.selected_point_halo = 4  # extra white halo thickness around it
@@ -133,9 +132,7 @@ class StepROIWidget(QWidget):
 
         # --- Detector controls ---
         # sliders and checkboxes
-        self.slider_num_colors = QSpinBox()
-        self.slider_num_colors.setRange(2, 20)
-        self.slider_num_colors.setValue(8)
+        # Num Colors removed
         self.slider_split = QSlider(Qt.Horizontal)
         self.slider_split.setRange(1, 100)
         self.slider_split.setValue(40)
@@ -152,9 +149,7 @@ class StepROIWidget(QWidget):
         self.slider_open.setRange(0, 20)
         self.slider_open.setValue(1)
 
-        self.chk_texture = QCheckBox("Use Texture")
-        self.chk_edge = QCheckBox("Edge-based Split")
-        self.chk_calib = QCheckBox("Auto Color Calibrate")
+
 
         self.btn_export_csv = QPushButton("Export CSV")
         self.btn_export_csv.clicked.connect(self._on_export_csv)
@@ -168,19 +163,13 @@ class StepROIWidget(QWidget):
         self.detector = BacteriaDetector()
 
         # connect sliders to debounce
-        self.slider_num_colors.valueChanged.connect(self._on_num_colors_value_changed)
+        # Num Colors logic removed
         self.slider_split.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_close.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_open.valueChanged.connect(lambda _: self._detector_timer.start(100))
-        self.chk_texture.stateChanged.connect(lambda _: self._detector_timer.start(100))
-        self.chk_edge.stateChanged.connect(lambda _: self._detector_timer.start(100))
-        self.chk_calib.stateChanged.connect(lambda _: self._detector_timer.start(100))
-        # Auto-K button
-        self.btn_auto_k = QPushButton("Auto-K")
-        self.btn_auto_k.clicked.connect(self._on_autok)
-        self.btn_auto_k.setToolTip("Run k-means on H+S to compute color centers from the image")
+        # Auto-K button removed
 
 
         # Areas list
@@ -219,9 +208,7 @@ class StepROIWidget(QWidget):
         detector_group = QGroupBox("Bacteria Detector")
         detector_layout = QVBoxLayout()
         detector_layout.setSpacing(6)
-        detector_layout.addWidget(QLabel("Num Colors"))
-        detector_layout.addWidget(self.slider_num_colors)
-        detector_layout.addWidget(self.btn_auto_k)
+        # Num Colors and Auto-K removed from layout
         detector_layout.addWidget(QLabel("Split Threshold %"))
         detector_layout.addWidget(self.slider_split)
         detector_layout.addWidget(QLabel("Saturation Min"))
@@ -232,9 +219,6 @@ class StepROIWidget(QWidget):
         detector_layout.addWidget(self.slider_close)
         detector_layout.addWidget(QLabel("Open Radius"))
         detector_layout.addWidget(self.slider_open)
-        detector_layout.addWidget(self.chk_texture)
-        detector_layout.addWidget(self.chk_edge)
-        detector_layout.addWidget(self.chk_calib)
         detector_layout.addWidget(self.btn_export_csv)
         detector_group.setLayout(detector_layout)
 
@@ -284,15 +268,11 @@ class StepROIWidget(QWidget):
         """Save all slider positions to YAML config file."""
         try:
             state = {
-                "num_colors": self.slider_num_colors.value(),
                 "split_threshold": self.slider_split.value(),
                 "saturation_min": self.slider_sat.value(),
                 "value_min": self.slider_val.value(),
                 "morph_close_radius": self.slider_close.value(),
                 "morph_open_radius": self.slider_open.value(),
-                "use_texture": self.chk_texture.isChecked(),
-                "use_edge_split": self.chk_edge.isChecked(),
-                "auto_color_calib": self.chk_calib.isChecked(),
             }
             path = self._get_slider_config_path()
             with open(path, "w") as f:
@@ -312,15 +292,11 @@ class StepROIWidget(QWidget):
             if not state:
                 return
             # Load values (with defaults if keys missing)
-            self.slider_num_colors.setValue(state.get("num_colors", 8))
             self.slider_split.setValue(state.get("split_threshold", 40))
             self.slider_sat.setValue(state.get("saturation_min", 50))
             self.slider_val.setValue(state.get("value_min", 50))
             self.slider_close.setValue(state.get("morph_close_radius", 2))
             self.slider_open.setValue(state.get("morph_open_radius", 1))
-            self.chk_texture.setChecked(state.get("use_texture", False))
-            self.chk_edge.setChecked(state.get("use_edge_split", False))
-            self.chk_calib.setChecked(state.get("auto_color_calib", False))
         except Exception as e:
             if self.log_widget:
                 self.log_widget.append_log(f"[WARN] Failed to load slider state: {e}")
@@ -338,7 +314,6 @@ class StepROIWidget(QWidget):
 
         # load slider positions from config if available
         self._load_slider_state()
-        self._load_autok_state_from_context()
 
         # apply initial detector params and run a quick preview
         self._apply_detector_params()
@@ -382,54 +357,9 @@ class StepROIWidget(QWidget):
         self.context.rois = self.rois
         self.context.rois_areas = self.rois
         self.context.roi_points = self.roi_points
-        # save slider state whenever context is saved
         self._save_slider_state()
-        self._save_autok_state_to_context()
 
-    def _save_autok_state_to_context(self):
-        if not hasattr(self.context, "settings") or not isinstance(self.context.settings, dict):
-            return
-
-        roi_state = dict(self.context.settings.get("roi_detector_state", {}))
-        centers = getattr(self, "_autok_centers", None)
-        if centers:
-            roi_state["autok_centers"] = [[int(c[0]), int(c[1])] for c in centers]
-        else:
-            roi_state.pop("autok_centers", None)
-        self.context.settings["roi_detector_state"] = roi_state
-
-    def _load_autok_state_from_context(self):
-        if not hasattr(self.context, "settings") or not isinstance(self.context.settings, dict):
-            return
-
-        roi_state = self.context.settings.get("roi_detector_state", {})
-        centers = roi_state.get("autok_centers", None) if isinstance(roi_state, dict) else None
-
-        if not centers:
-            if hasattr(self, "_autok_centers"):
-                delattr(self, "_autok_centers")
-            if hasattr(self, "_swatches_layout"):
-                self._clear_swatches()
-            return
-
-        normalized = []
-        for c in centers:
-            try:
-                h = int(c[0])
-                s = int(c[1])
-                normalized.append((h, s))
-            except Exception:
-                continue
-
-        if normalized:
-            self._autok_centers = normalized
-            if hasattr(self, "_swatches_layout"):
-                self._build_swatches_from_centers(normalized)
-        else:
-            if hasattr(self, "_autok_centers"):
-                delattr(self, "_autok_centers")
-            if hasattr(self, "_swatches_layout"):
-                self._clear_swatches()
+    
 
     def _compose_visualized_image(self):
         if self.display_image is None:
@@ -525,24 +455,18 @@ class StepROIWidget(QWidget):
                 snapshot_path = os.path.join(history_dir, snapshot_name)
                 cv2.imwrite(snapshot_path, snap)
                 snapshot_rel = snapshot_name
-
-            autok_centers = getattr(self, "_autok_centers", None)
             entry = {
                 "timestamp": ts,
                 "mode": mode,
                 "source_image": img_path,
                 "snapshot_file": snapshot_rel,
                 "detector_params": {
-                    "num_colors": int(self.slider_num_colors.value()),
                     "split_threshold": int(self.slider_split.value()),
                     "saturation_min": int(self.slider_sat.value()),
                     "value_min": int(self.slider_val.value()),
                     "morph_close_radius": int(self.slider_close.value()),
                     "morph_open_radius": int(self.slider_open.value()),
-                    "use_texture": bool(self.chk_texture.isChecked()),
-                    "use_edge_split": bool(self.chk_edge.isChecked()),
-                    "color_calibration": bool(self.chk_calib.isChecked()),
-                    "autok_centers": self._normalize_for_json(autok_centers) if autok_centers else [],
+                    # Auto-K related fields removed
                 },
                 "roi_areas": self._normalize_for_json(list(self.rois)),
                 "roi_points": self._normalize_for_json(list(self.roi_points)),
@@ -875,13 +799,19 @@ class StepROIWidget(QWidget):
             except Exception:
                 pass
             for rect in self.rois:
-                r = self.context.analyze_roi(img, rect)
+                try:
+                    r = self.context.analyze_roi(img, rect)
+                except Exception:
+                    # if context analysis fails for this rect, log and continue
+                    if self.log_widget:
+                        self.log_widget.append_log(f"[WARN] context.analyze_roi failed for rect {rect}")
+                    continue
                 res_list.append(r)
                 auto_pts.extend(r.get("centers", []))
                 for s in r.get("stats", []):
                     if "contour" in s:
                         contours.append(s["contour"])
-                        contour_labels.append(self._classify_contour_autok_label(s["contour"]))
+                        contour_labels.append(None)
         else:
             if self.log_widget:
                 self.log_widget.append_log("[INFO] context.analyze_roi not implemented. Falling back to local detector.")
@@ -893,7 +823,7 @@ class StepROIWidget(QWidget):
                 for s in objs:
                     if "contour" in s:
                         contours.append(s["contour"])
-                        contour_labels.append(self._classify_contour_autok_label(s["contour"]))
+                        contour_labels.append(None)
 
         # add detected centers to selected list
         self._append_points_to_selection(auto_pts)
@@ -948,7 +878,7 @@ class StepROIWidget(QWidget):
             self._append_points_to_selection(auto_pts)
 
             self.detected_contours = [s["contour"] for s in res.get("stats", []) if "contour" in s]
-            self.detected_contour_labels = [self._classify_contour_autok_label(s["contour"]) for s in res.get("stats", []) if "contour" in s]
+            self.detected_contour_labels = [None for s in res.get("stats", []) if "contour" in s]
 
             if hasattr(self.context, "on_analysis_done"):
                 self.context.on_analysis_done(res)
@@ -976,7 +906,7 @@ class StepROIWidget(QWidget):
             ov, centers, objs, counts = self._run_detector_on_whole()
             self._append_points_to_selection(centers)
             self.detected_contours = [s["contour"] for s in objs if "contour" in s]
-            self.detected_contour_labels = [self._classify_contour_autok_label(s["contour"]) for s in objs if "contour" in s]
+            self.detected_contour_labels = [None for s in objs if "contour" in s]
             # Show PREVIEW: base image with detected contours (not full overlay)
             img_show = self.context.image.copy()
             self._apply_mask_outline(img_show)
@@ -1034,35 +964,14 @@ class StepROIWidget(QWidget):
 
     # ---------- Detector helpers ----------
     def _on_num_colors_value_changed(self, _value):
-        # If Auto-K centers are active, changing Num Colors should recompute centers.
-        if hasattr(self, '_autok_centers') and getattr(self, '_autok_centers', None):
-            self._on_autok()
-            return
         self._detector_timer.start(100)
 
-    def _autok_centers_to_hue_ranges(self, centers, tol=8):
-        if not centers:
-            return None
-        ranges = []
-        for c in centers:
-            try:
-                h = int(c[0]) if isinstance(c, (list, tuple)) else int(c)
-            except Exception:
-                continue
-            h0 = max(0, h - int(tol))
-            h1 = min(179, h + int(tol))
-            ranges.append((h0, h1))
-        return ranges if ranges else None
+    
 
     def _apply_detector_params(self):
         # push UI params into detector
-        # If Auto-K was used, convert centers to hue ranges so sat/value sliders still affect detection.
         hue_centers = None
         hue_ranges = None
-        autok_centers = getattr(self, '_autok_centers', None)
-        if autok_centers:
-            hue_ranges = self._autok_centers_to_hue_ranges(autok_centers, tol=8)
-
         self.detector.set_params(
             hue_ranges=hue_ranges,
             hue_centers=hue_centers,
@@ -1071,10 +980,7 @@ class StepROIWidget(QWidget):
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value(),
             morph_close_radius=self.slider_close.value(),
-            morph_open_radius=self.slider_open.value(),
-            use_texture=self.chk_texture.isChecked(),
-            use_edge_split=self.chk_edge.isChecked(),
-            color_calibration=self.chk_calib.isChecked()
+            morph_open_radius=self.slider_open.value()
         )
 
     def _sync_params_to_context_detector(self):
@@ -1083,9 +989,6 @@ class StepROIWidget(QWidget):
             return
         hue_centers = None
         hue_ranges = None
-        autok_centers = getattr(self, '_autok_centers', None)
-        if autok_centers:
-            hue_ranges = self._autok_centers_to_hue_ranges(autok_centers, tol=8)
         params = dict(
             hue_ranges=hue_ranges,
             hue_centers=hue_centers,
@@ -1094,10 +997,7 @@ class StepROIWidget(QWidget):
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value(),
             morph_close_radius=self.slider_close.value(),
-            morph_open_radius=self.slider_open.value(),
-            use_texture=self.chk_texture.isChecked(),
-            use_edge_split=self.chk_edge.isChecked(),
-            color_calibration=self.chk_calib.isChecked()
+            morph_open_radius=self.slider_open.value()
         )
         try:
             self.context.detector.set_params(**params)
@@ -1133,7 +1033,7 @@ class StepROIWidget(QWidget):
                 for obj in objs:
                     if "contour" in obj:
                         fresh_contours.append(obj["contour"])
-                        fresh_labels.append(self._classify_contour_autok_label(obj["contour"]))
+                        fresh_labels.append(None)
 
             self.display_image = display_base
         else:
@@ -1141,7 +1041,7 @@ class StepROIWidget(QWidget):
             for obj in objs:
                 if "contour" in obj:
                     fresh_contours.append(obj["contour"])
-                    fresh_labels.append(self._classify_contour_autok_label(obj["contour"]))
+                    fresh_labels.append(None)
 
             display_base = self.context.image.copy()
             self.display_image = display_base
@@ -1151,10 +1051,7 @@ class StepROIWidget(QWidget):
         self._apply_mask_outline(self.display_image)
         self.update_image_label()
 
-    def _classify_contour_autok_label(self, contour):
-        centers = getattr(self, '_autok_centers', None)
-        img = getattr(self.context, 'image', None)
-        return classify_contour_to_center(img, contour, centers)
+    
 
     def _run_detector_on_rect(self, rect):
         img = getattr(self.context, "image", None)
@@ -1251,144 +1148,7 @@ class StepROIWidget(QWidget):
         except Exception:
             pass
 
-    # ---------- Swatches for interactive tuning ----------
-    def _build_swatches_from_centers(self, centers):
-        # centers: list of (h,s)
-        self._clear_swatches()
-        for i, (h, s) in enumerate(centers):
-            rgb = cv2.cvtColor(np.uint8([[[h, s, 200]]]), cv2.COLOR_HSV2RGB)[0, 0].tolist()
-            btn = QPushButton()
-            btn.setFixedSize(28, 28)
-            btn.setStyleSheet(f"background-color: rgb({rgb[0]}, {rgb[1]}, {rgb[2]}); border: 1px solid #222;")
-            btn.clicked.connect(lambda _, idx=i: self._on_swatch_clicked(idx))
-            self._swatches_layout.addWidget(btn)
-        self._swatches_layout.addStretch()
-
-    def _build_swatches_from_ranges(self, ranges):
-        self._clear_swatches()
-        for i, (h0, h1) in enumerate(ranges):
-            mid = (h0 + h1) // 2
-            rgb = cv2.cvtColor(np.uint8([[[mid, 200, 200]]]), cv2.COLOR_HSV2RGB)[0, 0].tolist()
-            btn = QPushButton()
-            btn.setFixedSize(28, 28)
-            btn.setStyleSheet(f"background-color: rgb({rgb[0]}, {rgb[1]}, {rgb[2]}); border: 1px solid #222;")
-            btn.clicked.connect(lambda _, idx=i: self._on_swatch_clicked(idx))
-            self._swatches_layout.addWidget(btn)
-        self._swatches_layout.addStretch()
-
-    def _clear_swatches(self):
-        while self._swatches_layout.count():
-            w = self._swatches_layout.takeAt(0)
-            if w.widget():
-                w.widget().deleteLater()
-
-    def _on_swatch_clicked(self, idx):
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Tune Color {idx+1}")
-        v = QVBoxLayout(dlg)
-        htol_label = QLabel("Hue tolerance (+/- deg)")
-        htol = QSpinBox()
-        htol.setRange(0, 60)
-        htol.setValue(8)
-        stol_label = QLabel("Sat tolerance (0-255)")
-        stol = QSpinBox()
-        stol.setRange(0, 255)
-        stol.setValue(60)
-        v.addWidget(htol_label)
-        v.addWidget(htol)
-        v.addWidget(stol_label)
-        v.addWidget(stol)
-        box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        box.accepted.connect(dlg.accept)
-        box.rejected.connect(dlg.reject)
-        v.addWidget(box)
-        if dlg.exec_() == QDialog.Accepted:
-            htol_v = htol.value()
-            s_tol_v = stol.value()
-            if hasattr(self, '_autok_centers') and self._autok_centers:
-                centers_h = [c[0] for c in self._autok_centers]
-                centers_h_sorted = sorted(centers_h)
-                ranges = []
-                for i, c in enumerate(centers_h_sorted):
-                    min_h = max(0, c - htol_v)
-                    max_h = min(179, c + htol_v)
-                    ranges.append((min_h, max_h))
-                self.hue_ranges = ranges
-                delattr(self, '_autok_centers')
-                self._save_autok_state_to_context()
-            else:
-                if 0 <= idx < len(self.hue_ranges):
-                    c0, c1 = self.hue_ranges[idx]
-                    mid = (c0 + c1) // 2
-                    min_h = max(0, mid - htol_v)
-                    max_h = min(179, mid + htol_v)
-                    self.hue_ranges[idx] = (min_h, max_h)
-            self._detector_timer.start(50)
-
-    # ---------- Auto-K (kmeans on H+S) ----------
-    def _on_autok(self):
-        img = getattr(self.context, 'image', None)
-        if img is None:
-            if self.log_widget:
-                self.log_widget.append_log('[INFO] No image for Auto-K')
-            return
-
-        mask = getattr(self.context, 'mask', None)
-        valid = mask > 0 if mask is not None else None
-        rois = list(self.rois) if self.rois else None
-        centers = compute_autok_centers(
-            image_bgr=img,
-            k=self.slider_num_colors.value(),
-            valid_mask=valid,
-            rois=rois,
-            saturation_min=self.slider_sat.value(),
-            value_min=self.slider_val.value(),
-            fallback_to_whole=True,
-        )
-
-        if centers:
-            # store centers on widget for subsequent calls
-            self._autok_centers = centers
-            self._save_autok_state_to_context()
-            if self.log_widget:
-                self.log_widget.append_log(f'[AUTO-K] Found {len(centers)} centers from all ROIs')
-            # apply and preview
-            # build swatches
-            self._build_swatches_from_centers(centers)
-            self._detector_timer.start(50)
-        else:
-            if self.log_widget:
-                self.log_widget.append_log('[AUTO-K] No centers found')
-
-    def _compute_hs_kmeans_centers_from_hs(self, hs, k=6):
-        if hs is None or hs.shape[0] == 0:
-            return []
-        try:
-            hs_f = hs.astype(np.float32)
-            n = hs_f.shape[0]
-            if n > 50000:
-                idx = np.random.choice(n, 50000, replace=False)
-                hs_f = hs_f[idx]
-
-            dummy_hsv = np.zeros((hs_f.shape[0], 1, 3), dtype=np.uint8)
-            dummy_hsv[:, 0, 0] = np.clip(hs_f[:, 0], 0, 179).astype(np.uint8)
-            dummy_hsv[:, 0, 1] = np.clip(hs_f[:, 1], 0, 255).astype(np.uint8)
-            dummy_hsv[:, 0, 2] = 200
-            dummy_bgr = cv2.cvtColor(dummy_hsv, cv2.COLOR_HSV2BGR)
-            return compute_autok_centers(dummy_bgr, k=k, valid_mask=None, rois=None, saturation_min=0, value_min=0, fallback_to_whole=False)
-        except Exception:
-            return []
-
-    def _compute_hs_kmeans_centers(self, img_bgr, k=6, valid_mask=None):
-        return compute_autok_centers(
-            image_bgr=img_bgr,
-            k=k,
-            valid_mask=valid_mask,
-            rois=None,
-            saturation_min=self.slider_sat.value(),
-            value_min=self.slider_val.value(),
-            fallback_to_whole=False,
-        )
+    # Swatches and Auto-K removed
 
     def on_next_save(self):
         """Save annotated picture (with outline/ROIs/points/contours) and the mask. Also save slider state."""
@@ -1434,9 +1194,7 @@ class StepROIWidget(QWidget):
                 cv2.circle(out, (int(px), int(py)), 5, (0, 200, 0), -1)
 
             annot_path = os.path.join(out_dir, f"{base}_annotated.png")
-            cv2.imwrite(annot_path, out)
-            if self.log_widget:
-                self.log_widget.append_log(f"[SAVE] Annotated image -> {annot_path}")
+            # log_widget removed (debug only)
 
             # save mask (if present)
             mask = getattr(self.context, "mask", None)

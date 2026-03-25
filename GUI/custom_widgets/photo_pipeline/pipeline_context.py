@@ -37,8 +37,6 @@ class PipelineContext:
         except Exception:
             self.pipeline_fullscreen: bool = True
 
-        # calibration
-        self.pixel_per_cm: Optional[float] = self._load_pixel_per_cm()
         self._refresh_detector_params(force=True)
 
     # ===================== public API (called by widgets) =====================
@@ -130,30 +128,6 @@ class PipelineContext:
 
     # ===================== internals =====================
 
-    def _load_pixel_per_cm(self) -> Optional[float]:
-        """Best-effort lookup of pixel_per_cm from camera or global settings."""
-        try:
-            try:
-                cs = config_manager.load_camera_settings()
-            except Exception:
-                cs = {}
-            cam_index = cs.get("camera_index", None)
-            if cam_index is None:
-                gs = config_manager.load_settings()
-                cam_index = gs.get("camera_index", 0)
-            cam_settings = cs.get("camera_settings", {}).get(str(cam_index), {})
-            ppcm = cam_settings.get("pixel_per_cm")
-            if ppcm is not None:
-                self.settings = cs
-                return ppcm
-
-            gs = config_manager.load_settings()
-            self.settings = gs
-            cam_settings = gs.get("camera_settings", {}).get(str(cam_index), {})
-            return cam_settings.get("pixel_per_cm", None)
-        except Exception as e:
-            logging.getLogger(__name__).error(f"[ERROR] Failed to load pixel_per_cm value: {e}")
-            return None
 
     def _refresh_detector_params(self, force: bool = False) -> None:
         """Keep detector params in sync with config_profiles/detector_params.yaml."""

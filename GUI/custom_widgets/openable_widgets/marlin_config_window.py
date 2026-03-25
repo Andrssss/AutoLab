@@ -126,7 +126,7 @@ class MarlinConfigWindow(QWidget):
                 settings = marlin_config_manager.load_settings()
                 self.apply_callback(settings)
                 if self.log_widget:
-                    self.log_widget.append_log("[INFO] Settings uploaded to Marlin firmware.")
+                    pass
                 QMessageBox.information(self, "OK", "Settings applied.")
             except Exception as e:
                 if self.log_widget:

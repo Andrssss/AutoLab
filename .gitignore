@@ -26,7 +26,7 @@ mini.py
 **/pictures/
 .config_profiles/
 mini.py
-
+summary/
 
 __pycache__/
 *.pyc
