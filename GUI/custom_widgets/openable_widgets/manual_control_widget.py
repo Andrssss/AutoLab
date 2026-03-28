@@ -4,7 +4,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter, QColor, QPen
 import time
 import threading
-from GUI.custom_widgets.mainwindow_components.CommandSender import CommandSender
+from Pozitioner_and_Communicater.CommandSender import CommandSender
 import re
 
 

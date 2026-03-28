@@ -414,7 +414,7 @@ class GCodeControl:
                     if self.is_emergency_latched() and not self._is_emergency_allowed_command(command):
                         continue
                     cmd_log = self._command_for_log(command)
-                    if name in ("X_motor", "Y_motor"): # Wait only here; other paths may not return RAMPS responses
+                    if name in ("X_motor", "Y_motor", "Z_motor"): # Wait only here; other paths may not return RAMPS responses
                         is_jog = self._is_manual_jog_command(command)
                         if not is_jog:
                             self.log(f"[{name}] -> {cmd_log}")
@@ -441,7 +441,7 @@ class GCodeControl:
 
     def start_threads(self):
         if (self.connected):
-            """Start threads: X_motor, Y_motor, AUX (other functions)."""
+            """Start threads: X_motor, Y_motor, Z_motor, AUX (other functions)."""
             # Do not start new threads if they are already running
             if hasattr(self, 'x_thread') and self.x_thread.is_alive():
                 self.log("[WARN] Threads are already running; stop them before restarting.")
@@ -449,12 +449,14 @@ class GCodeControl:
 
             self.x_thread = threading.Thread(target=self.worker_loop, args=(self.x_motor_queue, "X_motor"))
             self.y_thread = threading.Thread(target=self.worker_loop, args=(self.y_motor_queue, "Y_motor"))
+            self.z_thread = threading.Thread(target=self.worker_loop, args=(self.z_motor_queue, "Z_motor"))
             self.aux_thread = threading.Thread(target=self.worker_loop, args=(self.aux_queue, "AUX"))
             self.control_thread = threading.Thread(target=self.worker_loop, args=(self.control_queue, "CONTROL"))
 
             self.control_thread.start()
             self.x_thread.start()
             self.y_thread.start()
+            self.z_thread.start()
             self.aux_thread.start()
         else:
             self.log("[WARN] start_threads - not connected")
@@ -509,22 +511,29 @@ class GCodeControl:
             is_jog = self._is_manual_jog_command(cmd_upper)
 
             if "G1" in cmd_upper or "G0" in cmd_upper:
-                if "X" in cmd_upper and "Y" not in cmd_upper:
+                if "X" in cmd_upper and "Y" not in cmd_upper and "Z" not in cmd_upper:
                     if is_jog:
                         self._coalesce_axis_jog_queue(self.x_motor_queue)
                     if not is_jog:
                         self.log(f"[DISPATCH] X_motor_queue <- {cmd_log}")
                     self.send_to_x(cmd_upper)
                     return True
-                elif "Y" in cmd_upper and "X" not in cmd_upper:
+                elif "Y" in cmd_upper and "X" not in cmd_upper and "Z" not in cmd_upper:
                     if is_jog:
                         self._coalesce_axis_jog_queue(self.y_motor_queue)
                     if not is_jog:
                         self.log(f"[DISPATCH] Y_motor_queue <- {cmd_log}")
                     self.send_to_y(cmd_upper)
                     return True
+                elif "Z" in cmd_upper and "X" not in cmd_upper and "Y" not in cmd_upper:
+                    if is_jog:
+                        self._coalesce_axis_jog_queue(self.z_motor_queue)
+                    if not is_jog:
+                        self.log(f"[DISPATCH] Z_motor_queue <- {cmd_log}")
+                    self.send_to_z(cmd_upper)
+                    return True
                 else:
-                    self.log(f"[DISPATCH] CONTROL_queue (mixed XY or other) <- {cmd_log}")
+                    self.log(f"[DISPATCH] CONTROL_queue (mixed axes or other) <- {cmd_log}")
                     self.send_to_control(cmd_upper)
                     return True
             elif cmd_upper.startswith("M42"):
@@ -991,6 +1000,7 @@ class GCodeControl:
     # External command dispatch
     def send_to_x(self, gcode): self.x_motor_queue.put(gcode)
     def send_to_y(self, gcode): self.y_motor_queue.put(gcode)
+    def send_to_z(self, gcode): self.z_motor_queue.put(gcode)
     def send_to_aux(self, action): self.aux_queue.put(action)
     def send_to_control(self, gcode): self.control_queue.put(gcode)
 
@@ -1044,10 +1054,16 @@ class GCodeControl:
         # 1. Stop motion directly on the wire, bypassing the queue
         try:
             if self.ser and self.ser.is_open:
-                self.ser.write(b"M410\n")
-                self.ser.write(b"M18\n")
-                self.ser.flush()
-                self.log("[INFO] force_disconnect: M410 + M18 sent.")
+                if self.lock:
+                    with self.lock:
+                        self.ser.write(b"M410\n")
+                        self.ser.write(b"M18\n")
+                        self.ser.flush()
+                else:
+                    self.ser.write(b"M410\n")
+                    self.ser.write(b"M18\n")
+                    self.ser.flush()
+                self.log("[INFO] force_disconnect: M410 + M18 sent (thread-safe).")
         except Exception as e:
             self.log(f"[WARN] force_disconnect: Could not write stop commands: {e}")
 
@@ -1061,7 +1077,7 @@ class GCodeControl:
 
         # 3. Poison the command queues so worker threads exit gracefully
         self.running = False
-        for q in (self.x_motor_queue, self.y_motor_queue, self.aux_queue, self.control_queue):
+        for q in (self.x_motor_queue, self.y_motor_queue, self.z_motor_queue, self.aux_queue, self.control_queue):
             try:
                 q.put_nowait("STOP")
             except Exception:
@@ -1087,12 +1103,14 @@ class GCodeControl:
         self.running = False
         self.x_motor_queue.put("STOP")
         self.y_motor_queue.put("STOP")
+        self.z_motor_queue.put("STOP")
         self.aux_queue.put("STOP")
         self.control_queue.put("STOP")
 
         try:
             self.x_thread.join(timeout=2)
             self.y_thread.join(timeout=2)
+            self.z_thread.join(timeout=2)
             self.aux_thread.join(timeout=2)
             self.control_thread.join(timeout=2)
             self.log("[INFO] Threads stopped successfully.")

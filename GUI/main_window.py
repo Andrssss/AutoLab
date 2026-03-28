@@ -8,7 +8,7 @@ from GUI.custom_widgets.mainwindow_components.log_widget import LogWidget
 from GUI.custom_widgets.openable_widgets.manual_control_widget import ManualControlWidget
 from GUI.custom_widgets.openable_widgets.marlin_config_window import MarlinConfigWindow
 from File_managers.config_manager import ensure_settings_yaml_exists
-from .custom_widgets.mainwindow_components.CommandSender import CommandSender
+from Pozitioner_and_Communicater.CommandSender import CommandSender
 from GUI.custom_widgets.openable_widgets.motion_calibration_window import MotionCalibrationWindow
 from Pozitioner_and_Communicater.control_actions import ControlActions
 
