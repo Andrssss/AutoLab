@@ -17,10 +17,11 @@ from Pozitioner_and_Communicater.gcode_presets import MARLIN_COMMAND_MAP
 
 
 class GCodeControl:
-    def __init__(self, lock=None):
+    def __init__(self, lock):
+        if lock is None:
+            raise ValueError("GCodeControl requires a non-None lock")
         self.lock = lock
         self.ser = None
-        self.lock = lock
         self.connected = False
         self.label_status = None  # can be set externally (e.g., from the GUI)
         self.log_widget = None  # set externally in MainWindow
@@ -356,22 +357,17 @@ class GCodeControl:
         if not command.endswith("\n"):
             command += "\n"
 
-        if self.lock:
-            with self.lock:
-                self.ser.write(command.encode('utf-8'))
-        else:
+    
+        with self.lock:
             self.ser.write(command.encode('utf-8'))
-
+   
         time.sleep(0.05 if wait_for_completion else 0.005)
 
         if wait_for_completion:
             # only then send M400 and wait for response
-            if self.lock:
-                with self.lock:
-                    self.ser.write(b"M400\n")
-            else:
+            with self.lock:
                 self.ser.write(b"M400\n")
-
+        
             time.sleep(0.05)
             return self.wait_for_ok(timeout=5)
 
@@ -381,16 +377,9 @@ class GCodeControl:
 
 
     def wait_for_ok(self, timeout=5):
-        if not self.ser:
-            self.log("[ERROR] No valid serial connection (ser = None)")
-            return None
-
         start_time = time.time()
         while True:
-            if self.lock:
-                with self.lock:
-                    response = self.ser.readline().decode('utf-8', errors='ignore').strip().lower()
-            else:
+            with self.lock:
                 response = self.ser.readline().decode('utf-8', errors='ignore').strip().lower()
 
             if "ok" in response:
@@ -414,23 +403,16 @@ class GCodeControl:
                     if self.is_emergency_latched() and not self._is_emergency_allowed_command(command):
                         continue
                     cmd_log = self._command_for_log(command)
-                    if name in ("X_motor", "Y_motor", "Z_motor"): # Wait only here; other paths may not return RAMPS responses
+                    if name in ("X_motor", "Y_motor", "Z_motor"): 
                         is_jog = self._is_manual_jog_command(command)
-                        if not is_jog:
-                            self.log(f"[{name}] -> {cmd_log}")
                         wait_move = not is_jog
                         self.send_command(command, wait_for_completion=wait_move)
                     elif name == "AUX":
-                        # Specifically for M42 control
                         if command.startswith("M42"):
                             self.log(f"[AUX] M42 command: {cmd_log}")
                             self.send_command(command, wait_for_completion=False)
                     elif name == "CONTROL":
-                        if not command.lstrip().upper().startswith("M106"):
-                            self.log(f"[CONTROL] -> {cmd_log}")
-                        # G28 can take 30+ seconds; don't wait at Python level.
-                        # Marlin executes queued commands in order, so M114
-                        # queued after G28 will naturally run after homing finishes.
+                        self.log(f"[CONTROL] -> {cmd_log}")
                         self.send_command(command, wait_for_completion=self._is_xy_move_command(command))
                 except queue.Empty:
                     continue
@@ -463,6 +445,8 @@ class GCodeControl:
 
 
     def set_lock(self, lock):
+        if lock is None:
+            raise ValueError("lock cannot be None")
         self.lock = lock
 
 
@@ -481,17 +465,11 @@ class GCodeControl:
                 self.log("[ERROR] No valid serial connection (ser = None)")
                 return ""
 
-            if self.lock:
-                with self.lock:
-                    self.ser.write("M119\n".encode('utf-8'))
-            else:
+            with self.lock:
                 self.ser.write("M119\n".encode('utf-8'))
 
             time.sleep(0.1)
-            if self.lock:
-                with self.lock:
-                    response = self.ser.read_all().decode('utf-8', errors='ignore')
-            else:
+            with self.lock:
                 response = self.ser.read_all().decode('utf-8', errors='ignore')
 
             return response
@@ -1054,12 +1032,7 @@ class GCodeControl:
         # 1. Stop motion directly on the wire, bypassing the queue
         try:
             if self.ser and self.ser.is_open:
-                if self.lock:
-                    with self.lock:
-                        self.ser.write(b"M410\n")
-                        self.ser.write(b"M18\n")
-                        self.ser.flush()
-                else:
+                with self.lock:
                     self.ser.write(b"M410\n")
                     self.ser.write(b"M18\n")
                     self.ser.flush()
