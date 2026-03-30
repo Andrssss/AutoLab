@@ -2,7 +2,6 @@
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 import cv2
-from Pozitioner_and_Communicater.control_actions import ControlActions
 
 class StepPickingWidget(QWidget):
     finished = pyqtSignal()
@@ -14,11 +13,7 @@ class StepPickingWidget(QWidget):
         self.context = context
         self.main_window = main_window
         self.log_widget = log_widget
-        self.control_actions: ControlActions | None = None
-        try:
-            self.control_actions = main_window.get_control_actions()
-        except Exception:
-            self.control_actions = None
+        self.g_control = getattr(main_window, "g_control", None) if main_window else None
 
         # Main layout: vertical with split panel in middle and buttons at bottom
         main_layout = QVBoxLayout(self)
@@ -135,8 +130,8 @@ class StepPickingWidget(QWidget):
         self._stop_engine()
         removed = 0
         try:
-            if self.control_actions:
-                removed = int(self.control_actions.clear_pending_motion_commands())
+            if self.g_control:
+                removed = int(self.g_control.clear_pending_motion_commands_full())
         except Exception:
             removed = 0
 
@@ -150,20 +145,14 @@ class StepPickingWidget(QWidget):
     def _is_emergency_recovery_needed(self) -> bool:
         if self._reconnect_required:
             return True
-        if not self.control_actions:
+        if not self.g_control:
             return False
-        g_control = getattr(self.control_actions, "g_control", None)
-        if g_control is None:
-            return False
-
         try:
-            if hasattr(g_control, "is_emergency_latched") and g_control.is_emergency_latched():
+            if self.g_control.is_emergency_latched():
                 return True
         except Exception:
             return True
-
-        connected = bool(getattr(g_control, "connected", False))
-        return not connected
+        return not bool(self.g_control.connected)
 
     # ---------- UI render ----------
     def _show(self, img):
@@ -232,19 +221,19 @@ class StepPickingWidget(QWidget):
         if not self._points:
             self.log_box.append("[ERROR] No ROI points.")
             return
-        if not self.control_actions:
-            self.log_box.append("[ERROR] Control actions service is not available.")
+        if not self.g_control:
+            self.log_box.append("[ERROR] G-code control is not available.")
             return
 
         if self._is_emergency_recovery_needed() and self._reconnect_required:
             self.log_box.append("[INFO] Reconnecting to saved port before restart...")
-            if not self.control_actions.action_reconnect_saved_connection():
+            if not self.g_control.action_reconnect_saved_connection():
                 self.log_box.append("[ERROR] Reconnect failed (saved settings).")
                 return
             self._reconnect_required = False
 
         if self._is_emergency_recovery_needed():
-            if not self.control_actions.action_recover_from_emergency():
+            if not self.g_control.action_recover_from_emergency():
                 self.log_box.append("[ERROR] Emergency recovery failed (M999/reconnect).")
                 return
             self.log_box.append("[INFO] Emergency recovery OK. Starting picking...")
@@ -263,19 +252,19 @@ class StepPickingWidget(QWidget):
         if not self._resume_after_stop_available or not self._points:
             self.log_box.append("[WARN] No paused picking state to continue.")
             return
-        if not self.control_actions:
-            self.log_box.append("[ERROR] Control actions service is not available.")
+        if not self.g_control:
+            self.log_box.append("[ERROR] G-code control is not available.")
             return
 
         if self._is_emergency_recovery_needed() and self._reconnect_required:
             self.log_box.append("[INFO] Reconnecting to saved port before continue...")
-            if not self.control_actions.action_reconnect_saved_connection():
+            if not self.g_control.action_reconnect_saved_connection():
                 self.log_box.append("[ERROR] Reconnect failed (saved settings).")
                 return
             self._reconnect_required = False
 
         if self._is_emergency_recovery_needed():
-            if not self.control_actions.action_recover_from_emergency():
+            if not self.g_control.action_recover_from_emergency():
                 self.log_box.append("[ERROR] Emergency recovery failed (M999/reconnect).")
                 return
 
@@ -302,12 +291,17 @@ class StepPickingWidget(QWidget):
         self.log_box.append("[INFO] Pipetting stopped (emergency stop sent).")
 
     def _trigger_emergency_stop_like_manual_control(self):
-        """Use centralized emergency-stop action (manual control flow + fallback)."""
         try:
             control_widget = getattr(self.main_window, "control_widget", None) if self.main_window else None
-            source = self.control_actions.action_emergency_stop(stop_context=control_widget, send_reset=False) if self.control_actions else "fallback"
-            if source == "fallback":
-                self.log_box.append("[EMERGENCY STOP] M112 sent (fallback).")
+            if control_widget:
+                if hasattr(control_widget, "stopped"):
+                    control_widget.stopped = True
+                if hasattr(control_widget, "paused"):
+                    control_widget.paused = True
+                for t in getattr(control_widget, "timers", {}).values():
+                    t.stop()
+            if self.g_control:
+                self.g_control.action_emergency_stop(send_reset=False)
         except Exception as e:
             self.log_box.append(f"[ERROR] Emergency stop failed: {e}")
 
@@ -328,7 +322,7 @@ class StepPickingWidget(QWidget):
 
         # wait until last move is really completed (queue drained + worker idle)
         if self._awaiting_motion:
-            if self.control_actions and self.control_actions.has_pending_motion_commands():
+            if self.g_control and self.g_control.has_pending_motion_commands():
                 return
             self._awaiting_motion = False
 
@@ -340,7 +334,7 @@ class StepPickingWidget(QWidget):
         # move to next point
         self._idx += 1
         if self._idx >= len(self._points):
-            if self.control_actions and self.control_actions.has_pending_motion_commands():
+            if self.g_control and self.g_control.has_pending_motion_commands():
                 self._idx = len(self._points) - 1
                 return
 
@@ -351,9 +345,11 @@ class StepPickingWidget(QWidget):
         x, y = self._points[self._idx]
         self.log_box.append(f"[STEP] {self._idx + 1}. ROI -> X:{x}, Y:{y}")
         try:
-            if not self.control_actions:
-                raise RuntimeError("Control actions service is not available.")
-            self.control_actions.action_move_xy(x, y, feedrate=self.ROI_MOVE_FEEDRATE)
+            if not self.g_control:
+                raise RuntimeError("G-code control is not available.")
+            command = f"G0 X{int(x)} Y{int(y)} F{self.ROI_MOVE_FEEDRATE}\n"
+            self.g_control.new_command(command)
+            self.g_control.log(f"[GCODE] {command.strip()}")
         except Exception as e:
             self.log_box.append(f"[ERROR] Command send error: {e}")
             self._stop_engine()

@@ -110,7 +110,7 @@ class ArrowControlPad(QWidget):
 class ManualControlWidget(QWidget):
     actionCommand = pyqtSignal(str)
 
-    def __init__(self, g_control, log_widget, command_sender, main_window, control_actions=None, parent=None):
+    def __init__(self, g_control, log_widget, command_sender, main_window, parent=None):
         super().__init__(parent)
         self.stopped = False  # Stop state
         self.paused = False
@@ -123,7 +123,6 @@ class ManualControlWidget(QWidget):
         self.g_control = g_control
         self.command_sender = command_sender
         self.main_window = main_window
-        self.control_actions = control_actions
         self._extruder_motion_prepared = False
         self.auto_disable_steppers_on_idle = True
         self.idle_disable_delay_ms = 1200

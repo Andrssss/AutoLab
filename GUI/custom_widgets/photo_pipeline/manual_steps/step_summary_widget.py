@@ -58,8 +58,6 @@ class StepSummaryWidget(QWidget):
         
         button_layout.addWidget(self.prev_btn)
         button_layout.addStretch()
-        button_layout.addWidget(self.measure_btn)
-        button_layout.addStretch()
         button_layout.addWidget(self.next_btn)
         
         main_layout.addLayout(button_layout)

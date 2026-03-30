@@ -9,9 +9,6 @@ from PyQt5.QtGui import QImage, QPixmap
 import yaml
 from File_managers import config_manager
 from GUI.custom_widgets.photo_pipeline.manual_steps.manual_pipeline_widget import PipelineWidget
-from Pozitioner_and_Communicater.control_actions import ControlActions
-
-
 from GUI.custom_widgets.mainwindow_components.CameraSettingsDialog import CameraSettingsDialog
 
 
@@ -56,13 +53,12 @@ class CameraWidget(QWidget):
     snapshotPressed = pyqtSignal()
     _cameras_ready  = pyqtSignal(list)   # emitted by detect thread → main thread
 
-    def __init__(self, log_widget, main_window, control_actions: ControlActions, camera_index=None, available_cams=None, parent=None):
+    def __init__(self, log_widget, main_window, camera_index=None, available_cams=None, parent=None):
         super().__init__(parent)
         self.camera_index    = camera_index   # may be None until camera is selected
         self.available_cams  = available_cams or []
         self.main_window     = main_window
         self.log_widget      = log_widget
-        self.control_actions = control_actions
         self.capture_after_led = False
         self.frames_to_skip    = 0
         self.current_frame     = None
@@ -274,15 +270,21 @@ class CameraWidget(QWidget):
             else:
                 self.capture_after_led = False
                 self.capture_image()
-                self.control_actions.action_led_pwm(0)
+                self._send_led_pwm(0)
+
 
     def on_snapshot(self):
         led_cfg = config_manager.load_led_settings(default_pwm=255, default_enabled=False)
         s = int(led_cfg.get("led_pwm", 255)) if bool(led_cfg.get("led_enabled", False)) else 0
-        self.control_actions.action_led_pwm(s)
+        self._send_led_pwm(s)
         self.frames_to_skip    = 3
         self.capture_after_led = True
         self.snapshotPressed.emit()
+
+    def _send_led_pwm(self, s_value: int):
+        g_control = getattr(self.main_window, "g_control", None)
+        if g_control:
+            g_control.send_led_pwm(s_value)
 
     def open_camera_settings(self):
         if self.camera_index is None:
@@ -294,7 +296,7 @@ class CameraWidget(QWidget):
             self.camera_index,
             self.zoom_level, self.zoom_offset_x, self.zoom_offset_y,
             self.blur_enabled, self.gain, self.exposure,
-            self.log_widget, self.control_actions, self,
+            self.log_widget, self.main_window, self,
         )
         dialog.exec_()
         if hasattr(dialog, "result"):
@@ -350,8 +352,14 @@ class CameraWidget(QWidget):
 
     def open_bacteria_analyzer(self, image_path=None):
         self.analyzer_window = PipelineWidget(self.main_window, image_path, self.log_widget)
+        self.analyzer_window.pipeline_finished.connect(self._on_pipeline_finished)
         self.analyzer_window.setWindowState(self.analyzer_window.windowState() & ~Qt.WindowFullScreen)
         self.analyzer_window.showMaximized()
+
+    def _on_pipeline_finished(self):
+        if self.analyzer_window:
+            self.analyzer_window.close()
+            self.analyzer_window = None
     '''
     # The old version 
     def open_bacteria_analyzer(self, image_path):

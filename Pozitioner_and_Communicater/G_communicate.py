@@ -25,6 +25,7 @@ class GCodeControl:
         self.connected = False
         self.label_status = None  # can be set externally (e.g., from the GUI)
         self.log_widget = None  # set externally in MainWindow
+        self.command_sender = None  # set externally in MainWindow
 
 
         # Command queues for each thread
@@ -1024,6 +1025,87 @@ class GCodeControl:
                     self.send_command(full + "\n")
                     self.log(f"[GCODE] {full}")
 
+
+    def send_led_pwm(self, s_value: int):
+        s = max(0, min(255, int(s_value)))
+        if not self.connected:
+            self.log("[ERROR] Machine is not connected (M106 skipped).")
+            return
+        command = f"M106 S{s}\n"
+        if self.command_sender and hasattr(self.command_sender, "isRunning") and self.command_sender.isRunning():
+            self.command_sender.sendCommand.emit(command)
+        else:
+            self.new_command(command)
+        self.log(f"[LED] -> M106 S{s}")
+
+    def _clear_command_sender_commands(self, predicate=None) -> int:
+        if not self.command_sender:
+            return 0
+        clear_fn = getattr(self.command_sender, "clear_pending_commands", None)
+        if not callable(clear_fn):
+            return 0
+        try:
+            return int(clear_fn(predicate))
+        except Exception:
+            return 0
+
+    def clear_all_pending_commands_full(self) -> int:
+        return self._clear_command_sender_commands(None) + self.clear_all_pending_commands()
+
+    def clear_pending_motion_commands_full(self) -> int:
+        return self._clear_command_sender_commands(self._is_motion_command) + self.clear_pending_motion_commands()
+
+    def send_emergency_stop(self) -> None:
+        self.set_emergency_latched(True)
+        if self.connected and self.ser:
+            self.send_command("M112\n")
+        else:
+            self.log("[WARN] Failed to dispatch emergency stop command (M112).")
+        self.log("[EMERGENCY STOP] Immediate machine stop!")
+
+    def action_emergency_stop(self, send_reset: bool = True):
+        self.send_emergency_stop()
+        time.sleep(0.1)
+        self.clear_all_pending_commands_full()
+        if send_reset and self.connected and self.ser:
+            self.send_command("M999\n")
+            self.set_emergency_latched(False)
+            self.log("[INFO] Reset (M999) command sent to firmware.")
+
+    def action_recover_from_emergency(self) -> bool:
+        connected = bool(self.connected)
+        if connected and not self.are_command_threads_alive():
+            self.log("[WARN] Command threads are not running; reconnecting...")
+            return self.action_reconnect_saved_connection()
+        if not self.is_emergency_latched() and connected:
+            return True
+        if not connected:
+            self.log("[WARN] Recovery requested while disconnected; trying reconnect...")
+            return self.action_reconnect_saved_connection()
+
+        self.log("[INFO] Emergency latch is active; trying M999 recovery...")
+        self.send_command("M999\n")
+        self.set_emergency_latched(False)
+        self.clear_all_pending_commands_full()
+
+        if not self.are_command_threads_alive():
+            self.log("[WARN] Threads not alive after reset; reconnecting...")
+            return self.action_reconnect_saved_connection()
+        self.log("[INFO] Emergency latch cleared; commands re-enabled.")
+        return True
+
+    def action_reconnect_saved_connection(self) -> bool:
+        self.set_emergency_latched(False)
+        try:
+            ok = bool(self.reconnect_saved(fallback=True))
+        except Exception:
+            ok = False
+        if ok:
+            self.clear_all_pending_commands_full()
+            self.log("[INFO] Reconnected using saved settings.")
+        else:
+            self.log("[ERROR] Reconnect failed with saved settings.")
+        return ok
 
     def force_disconnect(self):
         """Hard-disconnect: stop motion and close the port cleanly.

@@ -10,20 +10,17 @@ from GUI.custom_widgets.openable_widgets.marlin_config_window import MarlinConfi
 from File_managers.config_manager import ensure_settings_yaml_exists
 from Pozitioner_and_Communicater.CommandSender import CommandSender
 from GUI.custom_widgets.openable_widgets.motion_calibration_window import MotionCalibrationWindow
-from Pozitioner_and_Communicater.control_actions import ControlActions
 
 
-class _ConsoleToLog:
-    def __init__(self, log_widget, original_stream):
+class _StderrToLog:
+    def __init__(self, log_widget):
         self.log_widget = log_widget
-        self.original_stream = original_stream
         self._buffer = ""
 
     def write(self, text):
         if text is None:
             return 0
         s = str(text)
-
         self._buffer += s
         while "\n" in self._buffer:
             line, self._buffer = self._buffer.split("\n", 1)
@@ -43,20 +40,19 @@ class MainWindow(QMainWindow):
         super().__init__()
         ensure_settings_yaml_exists()  # Ensure settings file is present
         self.g_control = g_control
-        self._orig_stdout = sys.stdout
         self._orig_stderr = sys.stderr
-        self._stdout_proxy = None
         self._stderr_proxy = None
 
         self.command_sender = CommandSender(self.g_control)
         self.command_sender.start()
+        self.g_control.command_sender = self.command_sender
 
         self.setWindowTitle("Main Window with Menu Bar")
         self.setGeometry(100, 100, 1200, 600)
 
         self._init_menu()
         self._init_widgets()
-        self._install_console_logging()
+        self._install_stderr_logging()
         QTimer.singleShot(250, self._startup_connect_sequence)
         self._connect_signals()
 
@@ -167,15 +163,9 @@ class MainWindow(QMainWindow):
         self.log_widget = LogWidget()
         self.g_control.log_widget = self.log_widget
 
-        self.control_actions = ControlActions(
-            g_control=self.g_control,
-            command_sender=self.command_sender,
-            log_widget=self.log_widget,
-        )
+        self.camera_widget = CameraWidget(self.log_widget, self)
 
-        self.camera_widget = CameraWidget(self.log_widget, self, self.control_actions)
-
-        self.control_widget = ManualControlWidget(self.g_control, self.log_widget, self.command_sender, self, self.control_actions)
+        self.control_widget = ManualControlWidget(self.g_control, self.log_widget, self.command_sender, self)
 
         # Left panel: logs
         log_group = QGroupBox("Logs")
@@ -251,21 +241,16 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    def _install_console_logging(self):
-        self._stdout_proxy = _ConsoleToLog(self.log_widget, self._orig_stdout)
-        self._stderr_proxy = _ConsoleToLog(self.log_widget, self._orig_stderr)
-        sys.stdout = self._stdout_proxy
+    def _install_stderr_logging(self):
+        self._stderr_proxy = _StderrToLog(self.log_widget)
         sys.stderr = self._stderr_proxy
 
-    def _restore_console_logging(self):
+    def _restore_stderr_logging(self):
         try:
-            if self._stdout_proxy:
-                self._stdout_proxy.flush()
             if self._stderr_proxy:
                 self._stderr_proxy.flush()
         except Exception:
             pass
-        sys.stdout = self._orig_stdout
         sys.stderr = self._orig_stderr
 
 
@@ -316,8 +301,7 @@ class MainWindow(QMainWindow):
                 self.g_control.stop_threads()
             except Exception as e:
                 self.log_widget.append_log(f"[ERROR] Failed to stop threads: {e}")
-
-        self._restore_console_logging()
+        self._restore_stderr_logging()
         event.accept()
 
     def set_command_sender(self, new_sender):
@@ -335,8 +319,7 @@ class MainWindow(QMainWindow):
             self.log_widget.append_log("[INFO] Starting new CommandSender...")
             self.command_sender.start()
 
-        if hasattr(self, 'control_actions') and self.control_actions:
-            self.control_actions.set_command_sender(self.command_sender)
+        self.g_control.command_sender = self.command_sender
 
     def get_g_control(self):
         return self.g_control
@@ -344,17 +327,9 @@ class MainWindow(QMainWindow):
     def get_command_sender(self):
         return self.command_sender
 
-    def get_control_actions(self):
-        return self.control_actions
-
     def open_motion_calibration_window(self):
-        self.motion_cal_win = MotionCalibrationWindow(self.g_control, self.log_widget, self.control_actions)
+        self.motion_cal_win = MotionCalibrationWindow(self.g_control, self.log_widget)
         self.motion_cal_win.show()
         # keep a ref so it isn't GC'd
         self._config_refs = getattr(self, "_config_refs", [])
         self._config_refs.append(self.motion_cal_win)
-
-
-
-
-
