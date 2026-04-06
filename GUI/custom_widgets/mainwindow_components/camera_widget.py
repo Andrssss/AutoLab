@@ -207,7 +207,7 @@ class CameraWidget(QWidget):
         """Start capture for *index*. Always non-blocking."""
         self._kill_worker()
         self.camera_index = index
-        self._worker = _CameraWorker(index, fps=33)
+        self._worker = _CameraWorker(index, fps=30)
         self._worker.frame_ready.connect(self._on_frame_ready)
         self._worker.error.connect(self.log_widget.append_log)
         self._worker.finished.connect(self._worker.deleteLater)

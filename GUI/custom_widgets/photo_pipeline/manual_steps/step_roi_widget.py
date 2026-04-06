@@ -1,5 +1,5 @@
 ﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QSlider, QCheckBox, QFileDialog, QSpinBox, QDialog, QDialogButtonBox, QGroupBox, QSizePolicy, QScrollArea, QApplication
-from PyQt5.QtGui import QPixmap, QImage, QKeySequence
+from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QPoint, QTimer
 import cv2
 import numpy as np
@@ -792,38 +792,30 @@ class StepROIWidget(QWidget):
         contours = []
         contour_labels = []
 
-        if hasattr(self.context, "analyze_roi") and callable(self.context.analyze_roi):
-            # Ensure context.detector uses current UI params
+        self._sync_params_to_context_detector()
+        for rect in self.rois:
             try:
-                self._sync_params_to_context_detector()
+                x, y, w, h = rect
+                overlay, centers, objs, counts = self.context.detector.detect(
+                    image_bgr=img,
+                    full_mask=self.context.mask,
+                    roi_rect=rect,
+                    save_debug=True,
+                    save_dir=self.context.output_dir,
+                    prefix=f"roi_{x}_{y}_{w}x{h}_"
+                )
+                r = {"rect": rect, "centers": centers, "stats": objs, "counts": counts}
+                self.context.analysis.setdefault("overlays", []).append(overlay)
             except Exception:
-                pass
-            for rect in self.rois:
-                try:
-                    r = self.context.analyze_roi(img, rect)
-                except Exception:
-                    # if context analysis fails for this rect, log and continue
-                    if self.log_widget:
-                        self.log_widget.append_log(f"[WARN] context.analyze_roi failed for rect {rect}")
-                    continue
-                res_list.append(r)
-                auto_pts.extend(r.get("centers", []))
-                for s in r.get("stats", []):
-                    if "contour" in s:
-                        contours.append(s["contour"])
-                        contour_labels.append(None)
-        else:
-            if self.log_widget:
-                self.log_widget.append_log("[INFO] context.analyze_roi not implemented. Falling back to local detector.")
-            # fallback: run local detector on each ROI
-            for rect in self.rois:
-                ov, centers, objs, counts = self._run_detector_on_rect(rect)
-                res_list.append({"overlay": ov, "centers": centers, "stats": objs})
-                auto_pts.extend(centers)
-                for s in objs:
-                    if "contour" in s:
-                        contours.append(s["contour"])
-                        contour_labels.append(None)
+                if self.log_widget:
+                    self.log_widget.append_log(f"[WARN] analyze_roi failed for rect {rect}")
+                continue
+            res_list.append(r)
+            auto_pts.extend(r.get("centers", []))
+            for s in r.get("stats", []):
+                if "contour" in s:
+                    contours.append(s["contour"])
+                    contour_labels.append(None)
 
         # add detected centers to selected list
         self._append_points_to_selection(auto_pts)
@@ -849,7 +841,7 @@ class StepROIWidget(QWidget):
                 "result_count": len(res_list),
                 "detected_points_added": len(auto_pts),
                 "objects_per_roi": [len(r.get("stats", [])) for r in res_list],
-                "analysis_source": "context.analyze_roi" if (hasattr(self.context, "analyze_roi") and callable(self.context.analyze_roi)) else "local_detector"
+                "analysis_source": "context.detector"
             }
         )
 
@@ -865,63 +857,42 @@ class StepROIWidget(QWidget):
 
         mask = getattr(self.context, "mask", None)
 
-        if hasattr(self.context, "analyze_whole") and callable(self.context.analyze_whole):
-            # Sync current UI params to context detector so analysis uses the sliders
-            try:
-                self._sync_params_to_context_detector()
-            except Exception:
-                pass
+        self._sync_params_to_context_detector()
+        overlay, centers, objs, counts = self.context.detector.detect(
+            image_bgr=img,
+            full_mask=mask,
+            roi_rect=None,
+            save_debug=False,
+            save_dir=self.context.output_dir,
+            prefix="whole_"
+        )
+        self.context.analysis["whole_overlay"] = overlay
+        res = {"centers": centers, "stats": objs, "counts": counts}
 
-            res = self.context.analyze_whole(img, mask)
+        auto_pts = res.get("centers", [])
+        self._append_points_to_selection(auto_pts)
 
-            auto_pts = res.get("centers", [])
-            self._append_points_to_selection(auto_pts)
+        self.detected_contours = [s["contour"] for s in objs if "contour" in s]
+        self.detected_contour_labels = [None for s in objs if "contour" in s]
 
-            self.detected_contours = [s["contour"] for s in res.get("stats", []) if "contour" in s]
-            self.detected_contour_labels = [None for s in res.get("stats", []) if "contour" in s]
+        if hasattr(self.context, "on_analysis_done"):
+            self.context.on_analysis_done(res)
 
-            if hasattr(self.context, "on_analysis_done"):
-                self.context.on_analysis_done(res)
+        img_show = self.context.image.copy()
+        self._apply_mask_outline(img_show)
+        self.display_image = img_show
 
-            # Show PREVIEW: base image with detected contours (not full overlay)
-            img_show = self.context.image.copy()
-            self._apply_mask_outline(img_show)
-            self.display_image = img_show
-
-            self.save_to_context()
-            self._refresh_roi_lists()
-            self.update_image_label()
-            self._save_analysis_snapshot(
-                mode="whole_dish",
-                results_payload={
-                    "detected_points_added": len(auto_pts),
-                    "objects_detected": len(res.get("stats", [])),
-                    "analysis_source": "context.analyze_whole"
-                }
-            )
-        else:
-            # fallback local detector on whole image
-            if self.log_widget:
-                self.log_widget.append_log("[INFO] context.analyze_whole not provided - using local detector.")
-            ov, centers, objs, counts = self._run_detector_on_whole()
-            self._append_points_to_selection(centers)
-            self.detected_contours = [s["contour"] for s in objs if "contour" in s]
-            self.detected_contour_labels = [None for s in objs if "contour" in s]
-            # Show PREVIEW: base image with detected contours (not full overlay)
-            img_show = self.context.image.copy()
-            self._apply_mask_outline(img_show)
-            self.display_image = img_show
-            self.save_to_context()
-            self._refresh_roi_lists()
-            self.update_image_label()
-            self._save_analysis_snapshot(
-                mode="whole_dish",
-                results_payload={
-                    "detected_points_added": len(centers),
-                    "objects_detected": len(objs),
-                    "analysis_source": "local_detector"
-                }
-            )
+        self.save_to_context()
+        self._refresh_roi_lists()
+        self.update_image_label()
+        self._save_analysis_snapshot(
+            mode="whole_dish",
+            results_payload={
+                "detected_points_added": len(auto_pts),
+                "objects_detected": len(objs),
+                "analysis_source": "context.detector"
+            }
+        )
 
     def _append_points_to_selection(self, pts, min_dist_px=8):
         """Append points to roi_points, avoiding near-duplicates."""

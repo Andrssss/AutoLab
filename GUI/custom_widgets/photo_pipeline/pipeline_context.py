@@ -89,33 +89,6 @@ class PipelineContext:
         else:
             self.output_dir = os.path.join(os.getcwd(), "debug")
 
-    def analyze_roi(self, image: np.ndarray, rect: Tuple[int, int, int, int]) -> Dict[str, Any]:
-        self._refresh_detector_params()
-        x, y, w, h = rect
-        overlay, centers, objects, counts = self.detector.detect(
-            image_bgr=image,
-            full_mask=self.mask,
-            roi_rect=rect,
-            save_debug=True,
-            save_dir=self.output_dir,
-            prefix=f"roi_{x}_{y}_{w}x{h}_"
-        )
-        self.analysis.setdefault("overlays", []).append(overlay)
-        return {"rect": rect, "centers": centers, "stats": objects, "counts": counts}
-
-    def analyze_whole(self, image: np.ndarray, mask: Optional[np.ndarray]) -> Dict[str, Any]:
-        self._refresh_detector_params()
-        overlay, centers, objects, counts = self.detector.detect(
-            image_bgr=image,
-            full_mask=mask,
-            roi_rect=None,
-            save_debug=False,
-            save_dir=self.output_dir,
-            prefix="whole_"
-        )
-        self.analysis["whole_overlay"] = overlay
-        return {"centers": centers, "stats": objects, "counts": counts}
-
     def on_analysis_done(self, results: Any) -> None:
         auto_pts: List[Tuple[int, int]] = []
         if isinstance(results, dict) and "centers" in results:
