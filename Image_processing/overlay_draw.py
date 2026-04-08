@@ -29,8 +29,8 @@ def external_contours(mask: np.ndarray) -> List[np.ndarray]:
 def draw_mask_outline(
     image_bgr: np.ndarray,
     mask: np.ndarray,
-    color: Tuple[int, int, int] = (255, 255, 0),  # BGR (cyan)
-    thickness: int = 2,
+    color: Tuple[int, int, int] = (255, 0, 0),  # BGR blue
+    thickness: int = 3,
 ) -> np.ndarray:
     """
     Draws the outline of the mask onto the image (in-place) and returns it.
@@ -45,10 +45,10 @@ def draw_mask_outline(
 def blend_mask_fill(
     image_bgr: np.ndarray,
     mask: np.ndarray,
-    color: Tuple[int, int, int] = (255, 255, 0),  # BGR (cyan)
+    color: Tuple[int, int, int] = (255, 0, 0),  # BGR blue
     alpha: float = 0.3,
     outline_color: Tuple[int, int, int] | None = None,
-    outline_thickness: int = 2,
+    outline_thickness: int = 3,
 ) -> np.ndarray:
     """
     Returns a new image with a semi-transparent filled mask blended on top.

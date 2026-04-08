@@ -626,7 +626,7 @@ class StepROIWidget(QWidget):
         if mask is None:
             return img
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(img, cnts, -1, (0, 255, 255), 2)  # yellow outline
+        cv2.drawContours(img, cnts, -1, (255, 0, 0), 3)  # blue outline
         return img
 
     # ---------- mouse ----------

@@ -94,7 +94,7 @@ class StepSummaryWidget(QWidget):
 
         # --- draw Petri dish outline (yellow) only if not from ROI widget ---
         if getattr(self.context, "display_image", None) is None:
-            self._apply_dish_outline(display_img, color=(0, 255, 255), thickness=2)
+            self._apply_dish_outline(display_img, color=(255, 0, 0), thickness=3)
 
         # draw ROI points (if not already drawn by ROI widget)
         if getattr(self.context, "display_image", None) is None:
@@ -140,7 +140,7 @@ class StepSummaryWidget(QWidget):
 
         return True
      
-    def _apply_dish_outline(self, img, color=(0, 255, 255), thickness=2):
+    def _apply_dish_outline(self, img, color=(255, 0, 0), thickness=3):
         """
         Draw the Petri dish outline (from context.mask) on img in-place.
         color = BGR (default: yellow), thickness in pixels.

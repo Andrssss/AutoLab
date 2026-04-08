@@ -146,19 +146,13 @@ class PipelineContext:
 
         blur = getattr(getattr(w, "circle_blur_slider", None), "value", lambda: 7)()
         sens = getattr(getattr(w, "circle_slider", None), "value", lambda: 30)()
-        mode = "round"
-        if getattr(getattr(w, "radio_auto", None), "isChecked", lambda: False)():
-            mode = "auto"
-        elif getattr(getattr(w, "radio_rectangle", None), "isChecked", lambda: False)():
-            mode = "rectangle"
 
         petri_params = {
             "circle_blur": int(blur),
             "circle_sensitivity": int(sens),
-            "shape_mode": mode,
         }
         overlay_style = {
-            "overlay_color_bgr": tuple(getattr(w, "overlay_color", (0, 255, 0))),
+            "overlay_color_bgr": tuple(getattr(w, "overlay_color", (255, 0, 0))),
             "overlay_thickness": int(getattr(w, "overlay_thickness", 2)),
             "overlay_fill_alpha": float(getattr(w, "overlay_fill_alpha", 0.0)),
         }
@@ -175,17 +169,12 @@ class PipelineContext:
 
     def apply_to_widget(self, w, *, refresh: bool = True) -> None:
         # pushes saved params back into the widget and refreshes its preview
-        pp = self.get_petri_params({"circle_blur": 7, "circle_sensitivity": 30, "shape_mode": "round"})
+        pp = self.get_petri_params({"circle_blur": 7, "circle_sensitivity": 30})
         if hasattr(w, "circle_blur_slider"): w.circle_blur_slider.setValue(int(pp["circle_blur"]))
         if hasattr(w, "circle_slider"):      w.circle_slider.setValue(int(pp["circle_sensitivity"]))
-        mode = pp["shape_mode"]
-        if hasattr(w, "radio_auto"):       w.radio_auto.setChecked(mode == "auto")
-        if hasattr(w, "radio_rectangle"):  w.radio_rectangle.setChecked(mode == "rectangle")
-        if hasattr(w, "radio_round"):      w.radio_round.setChecked(mode == "round")
-        if hasattr(w, "petri_detector"):   w.petri_detector.set_mode(mode)
 
         style = self.get_overlay_style({
-            "overlay_color_bgr": getattr(w, "overlay_color", (255, 255, 0)),
+            "overlay_color_bgr": getattr(w, "overlay_color", (255, 0, 0)),
             "overlay_thickness": getattr(w, "overlay_thickness", 2),
             "overlay_fill_alpha": getattr(w, "overlay_fill_alpha", 0.0),
         })

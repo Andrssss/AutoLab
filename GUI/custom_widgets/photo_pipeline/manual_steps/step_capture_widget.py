@@ -1,7 +1,7 @@
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QSlider, QHBoxLayout,
-    QFileDialog, QRadioButton, QButtonGroup, QGroupBox, QFrame, QSizePolicy
+    QFileDialog, QGroupBox, QFrame, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from Image_processing.petri_detector import PetriDetector
@@ -24,11 +24,11 @@ class StepCaptureWidget(QWidget):
         self.original_image = None
         self.processed_image = None
         self.petri_mask = None
-        self.petri_detector = PetriDetector(mode="round")
+        self.petri_detector = PetriDetector()
 
         # ---- Visualization style (BGR) ----
-        self.overlay_color = (255, 255, 0)   # cyan in BGR
-        self.overlay_thickness = 2
+        self.overlay_color = (255, 0, 0)   # blue in BGR
+        self.overlay_thickness = 3
         self.overlay_fill_alpha = 0.0        # 0 → only outline; >0 → translucent fill
 
         self.initUI()
@@ -60,26 +60,6 @@ class StepCaptureWidget(QWidget):
         row_open.addWidget(btn_open)
         row_open.addStretch()
         controls_layout.addLayout(row_open)
-
-        # --- Petri shape selector (Round / Rectangle) ---
-        shape_layout = QHBoxLayout()
-        shape_layout.addWidget(QLabel("Petri shape:"))
-
-        self.radio_round = QRadioButton("Round")
-        self.radio_rectangle = QRadioButton("Rectangle")
-        self.radio_round.setChecked(True)
-
-        self.shape_group = QButtonGroup(self)
-        self.shape_group.addButton(self.radio_round)
-        self.shape_group.addButton(self.radio_rectangle)
-
-        self.radio_round.toggled.connect(lambda checked: self.on_shape_changed("round", checked))
-        self.radio_rectangle.toggled.connect(lambda checked: self.on_shape_changed("rectangle", checked))
-
-        shape_layout.addWidget(self.radio_round)
-        shape_layout.addWidget(self.radio_rectangle)
-        shape_layout.addStretch()
-        controls_layout.addLayout(shape_layout)
 
         # Petri detection sliders
         circle_layout = QVBoxLayout()
@@ -127,17 +107,6 @@ class StepCaptureWidget(QWidget):
 
         self.setLayout(layout)
         self.layout = layout
-
-    # --- shape change handler ---
-    def on_shape_changed(self, mode: str, checked: bool):
-        if not checked:
-            return
-        self.petri_detector.set_mode(mode)
-        if self.log_widget:
-            self.log_widget.append_log(f"[INFO] Petri detection mode set to: {mode}")
-        if self.original_image is not None:
-            # force re-detect on mode change
-            self.update_petri_params(force_detect=True)
 
     def open_image(self):
         default_dir = r"C:\\Users\\Public\\Pictures\\MyCaptures"
@@ -225,12 +194,9 @@ class StepCaptureWidget(QWidget):
         self.context.mask = self.petri_mask
         self.context.filtered_image = self.processed_image
 
-        # Save Petri detection parameters + shape mode
-        shape_mode = "rectangle" if self.radio_rectangle.isChecked() else "round"
         self.context.settings["petri_params"] = {
             "circle_blur": self.circle_blur_slider.value(),
             "circle_sensitivity": self.circle_slider.value(),
-            "shape_mode": shape_mode,
             "overlay_color_bgr": self.overlay_color,
             "overlay_thickness": self.overlay_thickness,
             "overlay_fill_alpha": self.overlay_fill_alpha,
@@ -249,14 +215,6 @@ class StepCaptureWidget(QWidget):
         petri_params = self.context.settings.get("petri_params", {})
         self.circle_blur_slider.setValue(petri_params.get("circle_blur", 7))
         self.circle_slider.setValue(petri_params.get("circle_sensitivity", 30))
-
-        # restore mode
-        mode = petri_params.get("shape_mode", "round")
-        if mode == "rectangle":
-            self.radio_rectangle.setChecked(True)
-        else:
-            self.radio_round.setChecked(True)
-        self.petri_detector.set_mode(mode)
 
         # restore overlay style if present
         self.overlay_color = tuple(petri_params.get("overlay_color_bgr", self.overlay_color))
