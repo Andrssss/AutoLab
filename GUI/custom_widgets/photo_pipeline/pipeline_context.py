@@ -128,8 +128,6 @@ class PipelineContext:
                 morph_open_radius=int(state.get("morph_open_radius", 1)),
                 use_texture=bool(state.get("use_texture", False)),
                 use_edge_split=bool(state.get("use_edge_split", False)),
-                color_calibration=bool(state.get("auto_color_calib", False)),
-                use_hs_soft_assignment=False,
             )
 
             self._detector_params_mtime = mtime

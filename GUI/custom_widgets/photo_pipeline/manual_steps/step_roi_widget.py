@@ -382,15 +382,11 @@ class StepROIWidget(QWidget):
             x, y, w, h = self.current_rect
             cv2.rectangle(img, (x, y), (x + w, y + h), (255, 80, 0), 2)
 
-        # analyzer contours (blue outlines)
+        # analyzer contours (green outlines)
         for idx, poly in enumerate(getattr(self, "detected_contours", [])):
             cnt = np.array(poly, dtype=np.int32)
             if cnt.ndim == 2 and len(cnt) >= 3:
-                color = (255, 0, 0)
-                labels = getattr(self, "detected_contour_labels", [])
-                if idx < len(labels) and labels[idx] is not None:
-                    color = self._legend_color(int(labels[idx]))
-                cv2.polylines(img, [cnt], isClosed=True, color=color, thickness=2)
+                cv2.polylines(img, [cnt], isClosed=True, color=(0, 255, 0), thickness=2)
 
         # selected points (red crosses + labels) + highlight selected (filled circle)
         for j, (px, py) in enumerate(self.roi_points):
@@ -940,13 +936,7 @@ class StepROIWidget(QWidget):
     
 
     def _apply_detector_params(self):
-        # push UI params into detector
-        hue_centers = None
-        hue_ranges = None
         self.detector.set_params(
-            hue_ranges=hue_ranges,
-            hue_centers=hue_centers,
-            use_hs_soft_assignment=False,
             split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value(),
@@ -955,15 +945,9 @@ class StepROIWidget(QWidget):
         )
 
     def _sync_params_to_context_detector(self):
-        # Mirror current UI detection params into the pipeline context detector
         if not hasattr(self, 'context') or not hasattr(self.context, 'detector'):
             return
-        hue_centers = None
-        hue_ranges = None
         params = dict(
-            hue_ranges=hue_ranges,
-            hue_centers=hue_centers,
-            use_hs_soft_assignment=False,
             split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value(),
@@ -973,21 +957,9 @@ class StepROIWidget(QWidget):
         try:
             self.context.detector.set_params(**params)
         except Exception:
-            # best-effort; ignore failures
             pass
 
-    def _legend_color(self, idx):
-        if hasattr(self, "detector") and self.detector is not None and hasattr(self.detector, "_legend_color"):
-            return self.detector._legend_color(idx)
-        fallback_palette = [
-            (255, 0, 0),
-            (0, 255, 0),
-            (0, 0, 255),
-            (255, 255, 0),
-            (255, 0, 255),
-            (0, 255, 255),
-        ]
-        return fallback_palette[idx % len(fallback_palette)]
+
 
     def _on_detector_params_apply(self):
         # apply params and run a preview on currently visible region (ROIs if present else whole)
@@ -1040,57 +1012,6 @@ class StepROIWidget(QWidget):
         mask = getattr(self.context, "mask", None)
         ov, centers, objs, counts = self.detector.detect(img, mask, roi_rect=None, save_debug=False)
         return ov, centers, objs, counts
-
-    def _centers_to_positions(self, image_bgr, centers, valid_mask=None):
-        if image_bgr is None or not centers:
-            return []
-        hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-        H = hsv[:, :, 0].astype(np.float32)
-        S = hsv[:, :, 1].astype(np.float32)
-        h_flat = H.reshape(-1)
-        s_flat = S.reshape(-1)
-        h_img, w_img = H.shape
-
-        centers_arr = np.array(centers, dtype=np.float32)
-        ch = centers_arr[:, 0].reshape(1, -1)
-        cs = centers_arr[:, 1].reshape(1, -1)
-
-        diff_h = np.abs(h_flat.reshape(-1, 1) - ch)
-        diff_h = np.minimum(diff_h, 179.0 - diff_h) / 179.0
-        diff_s = np.abs(s_flat.reshape(-1, 1) - cs) / 255.0
-        dist = np.sqrt(diff_h ** 2 + diff_s ** 2)
-        labels = np.argmin(dist, axis=1)
-
-        labels_img = labels.reshape(h_img, w_img)
-        centers_pos = []
-        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-
-        for ci in range(centers_arr.shape[0]):
-            mask = (labels_img == ci).astype('uint8') * 255
-            if valid_mask is not None:
-                vm = (valid_mask > 0).astype('uint8')
-                mask = cv2.bitwise_and(mask, vm.astype('uint8') * 255)
-
-            if np.count_nonzero(mask) == 0:
-                centers_pos.append(None)
-                continue
-
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
-
-            num_labels, labels_cc, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
-            if num_labels <= 1:
-                centers_pos.append(None)
-                continue
-            areas = stats[1:, cv2.CC_STAT_AREA]
-            if areas.size == 0:
-                centers_pos.append(None)
-                continue
-            max_idx = int(np.argmax(areas)) + 1
-            cx, cy = centroids[max_idx]
-            centers_pos.append((int(cx), int(cy)))
-
-        return centers_pos
 
     def _on_export_csv(self):
         # run detection over whole image and export CSV
