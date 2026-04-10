@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from Image_processing.petri_detector import PetriDetector
-from Image_processing.overlay_draw import draw_mask_outline, blend_mask_fill
+from Image_processing.overlay_draw import draw_mask_outline
 import cv2
 
 
@@ -29,7 +29,6 @@ class StepCaptureWidget(QWidget):
         # ---- Visualization style (BGR) ----
         self.overlay_color = (255, 0, 0)   # blue in BGR
         self.overlay_thickness = 3
-        self.overlay_fill_alpha = 0.0        # 0 → only outline; >0 → translucent fill
 
         self.initUI()
 
@@ -138,30 +137,15 @@ class StepCaptureWidget(QWidget):
                 else:
                     self.petri_mask = petri_mask
                     if self.log_widget:
-                        metrics = self.petri_detector.get_last_metrics()
-                        picked = metrics.get("picked", metrics.get("detector", "unknown"))
-                        score = metrics.get("score", None)
-                        if score is not None:
-                            self.log_widget.append_log(f"[DEBUG] Detector={picked}, Score={score:.2f}")
-                        else:
-                            self.log_widget.append_log(f"[DEBUG] Detector={picked}")
+                        area = cv2.countNonZero(self.petri_mask)
+                        self.log_widget.append_log(f"[DEBUG] Petri mask area={area}px")
 
-            # ---- draw via overlay helpers ----
-            if self.overlay_fill_alpha > 0.0:
-                self.processed_image = blend_mask_fill(
-                    self.original_image, self.petri_mask,
-                    color=self.overlay_color,
-                    alpha=float(self.overlay_fill_alpha),
-                    outline_color=self.overlay_color,
-                    outline_thickness=int(self.overlay_thickness),
-                )
-            else:
-                self.processed_image = self.original_image.copy()
-                draw_mask_outline(
-                    self.processed_image, self.petri_mask,
-                    color=self.overlay_color,
-                    thickness=int(self.overlay_thickness),
-                )
+            self.processed_image = self.original_image.copy()
+            draw_mask_outline(
+                self.processed_image, self.petri_mask,
+                color=self.overlay_color,
+                thickness=int(self.overlay_thickness),
+            )
 
             self.display_image(self.processed_image)
 
@@ -199,7 +183,6 @@ class StepCaptureWidget(QWidget):
             "circle_sensitivity": self.circle_slider.value(),
             "overlay_color_bgr": self.overlay_color,
             "overlay_thickness": self.overlay_thickness,
-            "overlay_fill_alpha": self.overlay_fill_alpha,
         }
 
         self.context.analysis = {
@@ -219,7 +202,6 @@ class StepCaptureWidget(QWidget):
         # restore overlay style if present
         self.overlay_color = tuple(petri_params.get("overlay_color_bgr", self.overlay_color))
         self.overlay_thickness = int(petri_params.get("overlay_thickness", self.overlay_thickness))
-        self.overlay_fill_alpha = float(petri_params.get("overlay_fill_alpha", self.overlay_fill_alpha))
 
         if self.context.image is not None:
             self.original_image = self.context.image

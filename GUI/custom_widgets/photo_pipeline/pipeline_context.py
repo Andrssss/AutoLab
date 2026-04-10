@@ -154,7 +154,6 @@ class PipelineContext:
         overlay_style = {
             "overlay_color_bgr": tuple(getattr(w, "overlay_color", (255, 0, 0))),
             "overlay_thickness": int(getattr(w, "overlay_thickness", 2)),
-            "overlay_fill_alpha": float(getattr(w, "overlay_fill_alpha", 0.0)),
         }
 
         self.update_capture(
@@ -176,11 +175,9 @@ class PipelineContext:
         style = self.get_overlay_style({
             "overlay_color_bgr": getattr(w, "overlay_color", (255, 0, 0)),
             "overlay_thickness": getattr(w, "overlay_thickness", 2),
-            "overlay_fill_alpha": getattr(w, "overlay_fill_alpha", 0.0),
         })
         if hasattr(w, "overlay_color"):      w.overlay_color = tuple(style["overlay_color_bgr"])
         if hasattr(w, "overlay_thickness"):  w.overlay_thickness = int(style["overlay_thickness"])
-        if hasattr(w, "overlay_fill_alpha"): w.overlay_fill_alpha = float(style["overlay_fill_alpha"])
 
         if self.image is not None: w.original_image = self.image
         if self.mask is not None:  w.petri_mask = self.mask

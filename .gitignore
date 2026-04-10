@@ -20,6 +20,7 @@ Thumbs.db
 /changelog
 /.github
 
+
 # Random things
 mini.py
 **/debug/
@@ -27,7 +28,8 @@ mini.py
 .config_profiles/
 mini.py
 summary/
-
+*.png
+*.jpg
 __pycache__/
 *.pyc
 .idea/
