@@ -142,14 +142,6 @@ class StepROIWidget(QWidget):
         self.slider_val = QSlider(Qt.Horizontal)
         self.slider_val.setRange(0, 255)
         self.slider_val.setValue(50)
-        self.slider_close = QSlider(Qt.Horizontal)
-        self.slider_close.setRange(0, 20)
-        self.slider_close.setValue(2)
-        self.slider_open = QSlider(Qt.Horizontal)
-        self.slider_open.setRange(0, 20)
-        self.slider_open.setValue(1)
-
-
 
         self.btn_export_csv = QPushButton("Export CSV")
         self.btn_export_csv.clicked.connect(self._on_export_csv)
@@ -167,8 +159,6 @@ class StepROIWidget(QWidget):
         self.slider_split.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(100))
-        self.slider_close.valueChanged.connect(lambda _: self._detector_timer.start(100))
-        self.slider_open.valueChanged.connect(lambda _: self._detector_timer.start(100))
         # Auto-K button removed
 
 
@@ -176,7 +166,6 @@ class StepROIWidget(QWidget):
         lbl_areas = QLabel("Areas")
         self.list_areas = QListWidget()
         self.list_areas.itemSelectionChanged.connect(self._on_area_selected)
-        self.list_areas.itemDoubleClicked.connect(self._on_area_double_clicked)
         self.btn_area_delete = QPushButton("Delete (Area)")
         self.btn_area_delete.clicked.connect(self._delete_selected_area)
 
@@ -184,7 +173,6 @@ class StepROIWidget(QWidget):
         lbl_points = QLabel("Points")
         self.list_points = QListWidget()
         self.list_points.itemSelectionChanged.connect(self._on_point_selected)
-        self.list_points.itemDoubleClicked.connect(self._on_point_double_clicked)
         self.btn_point_delete = QPushButton("Delete (Point)")
         self.btn_point_delete.clicked.connect(self._delete_selected_point)
 
@@ -215,10 +203,6 @@ class StepROIWidget(QWidget):
         detector_layout.addWidget(self.slider_sat)
         detector_layout.addWidget(QLabel("Value Min"))
         detector_layout.addWidget(self.slider_val)
-        detector_layout.addWidget(QLabel("Close Radius"))
-        detector_layout.addWidget(self.slider_close)
-        detector_layout.addWidget(QLabel("Open Radius"))
-        detector_layout.addWidget(self.slider_open)
         detector_layout.addWidget(self.btn_export_csv)
         detector_group.setLayout(detector_layout)
 
@@ -271,8 +255,6 @@ class StepROIWidget(QWidget):
                 "split_threshold": self.slider_split.value(),
                 "saturation_min": self.slider_sat.value(),
                 "value_min": self.slider_val.value(),
-                "morph_close_radius": self.slider_close.value(),
-                "morph_open_radius": self.slider_open.value(),
             }
             path = self._get_slider_config_path()
             with open(path, "w") as f:
@@ -291,12 +273,9 @@ class StepROIWidget(QWidget):
                 state = yaml.safe_load(f)
             if not state:
                 return
-            # Load values (with defaults if keys missing)
             self.slider_split.setValue(state.get("split_threshold", 40))
             self.slider_sat.setValue(state.get("saturation_min", 50))
             self.slider_val.setValue(state.get("value_min", 50))
-            self.slider_close.setValue(state.get("morph_close_radius", 2))
-            self.slider_open.setValue(state.get("morph_open_radius", 1))
         except Exception as e:
             if self.log_widget:
                 self.log_widget.append_log(f"[WARN] Failed to load slider state: {e}")
@@ -315,9 +294,10 @@ class StepROIWidget(QWidget):
         # load slider positions from config if available
         self._load_slider_state()
 
-        # apply initial detector params and run a quick preview
+        # apply initial detector params and run preview after UI renders
         self._apply_detector_params()
-        self._detector_timer.start(10)
+        if getattr(self.context, "image", None) is not None:
+            self._detector_timer.start(50)
         # keep normal in-window sizing (do not force maximize/fullscreen from this step)
 
     def _ensure_large_normal_window(self):
@@ -460,8 +440,6 @@ class StepROIWidget(QWidget):
                     "split_threshold": int(self.slider_split.value()),
                     "saturation_min": int(self.slider_sat.value()),
                     "value_min": int(self.slider_val.value()),
-                    "morph_close_radius": int(self.slider_close.value()),
-                    "morph_open_radius": int(self.slider_open.value()),
                     # Auto-K related fields removed
                 },
                 "roi_areas": self._normalize_for_json(list(self.rois)),
@@ -561,12 +539,6 @@ class StepROIWidget(QWidget):
         idx = self.list_points.currentRow()
         self.selected_point_idx = idx
         self.update_image_label()
-
-    def _on_area_double_clicked(self, item):
-        self._delete_selected_area()
-
-    def _on_point_double_clicked(self, item):
-        self._delete_selected_point()
 
     def _delete_selected_area(self):
         idx = self.list_areas.currentRow()
@@ -792,15 +764,12 @@ class StepROIWidget(QWidget):
         for rect in self.rois:
             try:
                 x, y, w, h = rect
-                overlay, centers, objs, counts = self.context.detector.detect(
+                overlay, centers, objs = self.context.detector.detect(
                     image_bgr=img,
                     full_mask=self.context.mask,
                     roi_rect=rect,
-                    save_debug=True,
-                    save_dir=self.context.output_dir,
-                    prefix=f"roi_{x}_{y}_{w}x{h}_"
                 )
-                r = {"rect": rect, "centers": centers, "stats": objs, "counts": counts}
+                r = {"rect": rect, "centers": centers, "stats": objs}
                 self.context.analysis.setdefault("overlays", []).append(overlay)
             except Exception:
                 if self.log_widget:
@@ -854,16 +823,13 @@ class StepROIWidget(QWidget):
         mask = getattr(self.context, "mask", None)
 
         self._sync_params_to_context_detector()
-        overlay, centers, objs, counts = self.context.detector.detect(
+        overlay, centers, objs = self.context.detector.detect(
             image_bgr=img,
             full_mask=mask,
             roi_rect=None,
-            save_debug=False,
-            save_dir=self.context.output_dir,
-            prefix="whole_"
         )
         self.context.analysis["whole_overlay"] = overlay
-        res = {"centers": centers, "stats": objs, "counts": counts}
+        res = {"centers": centers, "stats": objs}
 
         auto_pts = res.get("centers", [])
         self._append_points_to_selection(auto_pts)
@@ -930,18 +896,11 @@ class StepROIWidget(QWidget):
             pass
 
     # ---------- Detector helpers ----------
-    def _on_num_colors_value_changed(self, _value):
-        self._detector_timer.start(100)
-
-    
-
     def _apply_detector_params(self):
         self.detector.set_params(
             split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
-            value_min=self.slider_val.value(),
-            morph_close_radius=self.slider_close.value(),
-            morph_open_radius=self.slider_open.value()
+            value_min=self.slider_val.value()
         )
 
     def _sync_params_to_context_detector(self):
@@ -950,16 +909,12 @@ class StepROIWidget(QWidget):
         params = dict(
             split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
-            value_min=self.slider_val.value(),
-            morph_close_radius=self.slider_close.value(),
-            morph_open_radius=self.slider_open.value()
+            value_min=self.slider_val.value()
         )
         try:
             self.context.detector.set_params(**params)
         except Exception:
             pass
-
-
 
     def _on_detector_params_apply(self):
         # apply params and run a preview on currently visible region (ROIs if present else whole)
@@ -972,7 +927,7 @@ class StepROIWidget(QWidget):
             display_base = self.context.image.copy()
             
             for rect in self.rois:
-                ov, centers, objs, counts = self._run_detector_on_rect(rect)
+                ov, centers, objs = self._run_detector_on_rect(rect)
                 for obj in objs:
                     if "contour" in obj:
                         fresh_contours.append(obj["contour"])
@@ -980,7 +935,7 @@ class StepROIWidget(QWidget):
 
             self.display_image = display_base
         else:
-            ov, centers, objs, counts = self._run_detector_on_whole()
+            ov, centers, objs = self._run_detector_on_whole()
             for obj in objs:
                 if "contour" in obj:
                     fresh_contours.append(obj["contour"])
@@ -999,19 +954,18 @@ class StepROIWidget(QWidget):
     def _run_detector_on_rect(self, rect):
         img = getattr(self.context, "image", None)
         if img is None:
-            return None, [], [], []
+            return None, [], []
         mask = getattr(self.context, "mask", None)
-        # detector.detect accepts roi_rect
-        ov, centers, objs, counts = self.detector.detect(img, mask, roi_rect=rect, save_debug=False)
-        return ov, centers, objs, counts
+        ov, centers, objs = self.detector.detect(img, mask, roi_rect=rect)
+        return ov, centers, objs
 
     def _run_detector_on_whole(self):
         img = getattr(self.context, "image", None)
         if img is None:
-            return None, [], [], []
+            return None, [], []
         mask = getattr(self.context, "mask", None)
-        ov, centers, objs, counts = self.detector.detect(img, mask, roi_rect=None, save_debug=False)
-        return ov, centers, objs, counts
+        ov, centers, objs = self.detector.detect(img, mask, roi_rect=None)
+        return ov, centers, objs
 
     def _on_export_csv(self):
         # run detection over whole image and export CSV
@@ -1023,7 +977,7 @@ class StepROIWidget(QWidget):
         path, _ = QFileDialog.getSaveFileName(self, "Save detection CSV", os.path.expanduser("~"), "CSV files (*.csv)")
         if not path:
             return
-        ov, centers, objs, counts = self._run_detector_on_whole()
+        ov, centers, objs = self._run_detector_on_whole()
         try:
             self.detector.export_csv(objs, path)
             if self.log_widget:
@@ -1031,16 +985,6 @@ class StepROIWidget(QWidget):
         except Exception as e:
             if self.log_widget:
                 self.log_widget.append_log(f"[ERROR] Export CSV failed: {e}")
-
-    def _toggle_fullscreen(self, checked):
-        win = self.window()
-        try:
-            if win is not None:
-                win.showNormal()
-        except Exception:
-            pass
-
-    # Swatches and Auto-K removed
 
     def on_next_save(self):
         """Save annotated picture (with outline/ROIs/points/contours) and the mask. Also save slider state."""
@@ -1105,15 +1049,6 @@ class StepROIWidget(QWidget):
             traceback.print_exc()
             if self.log_widget:
                 self.log_widget.append_log(f"[ERROR] on_next_save failed: {e}")
-
-    def _clear_analysis_overlays(self):
-        """Drop cached overlay frames/legends so the next render uses the fresh base image."""
-        if hasattr(self.context, "analysis") and isinstance(self.context.analysis, dict):
-            self.context.analysis.pop("overlays", None)
-            self.context.analysis.pop("whole_overlay", None)
-            # optional: if you store derived stats that drive legends, clear them too
-            self.context.analysis.pop("legend", None)
-            self.context.analysis.pop("category_counts", None)
 
     # ---------- keyboard delete shortcuts ----------
     def keyPressEvent(self, event):

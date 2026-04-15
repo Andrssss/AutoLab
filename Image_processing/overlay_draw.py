@@ -10,7 +10,6 @@ def draw_mask_outline(
     color: Tuple[int, int, int] = (255, 0, 0),
     thickness: int = 3,
 ) -> np.ndarray:
-    """Draws the outline of the mask onto the image (in-place) and returns it."""
     if mask is None or mask.size == 0:
         return image_bgr
     contours_before, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)

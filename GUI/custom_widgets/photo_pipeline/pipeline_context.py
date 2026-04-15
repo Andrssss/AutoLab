@@ -124,10 +124,6 @@ class PipelineContext:
                 split_threshold=float(state.get("split_threshold", 40)),
                 saturation_min=int(state.get("saturation_min", 50)),
                 value_min=int(state.get("value_min", 50)),
-                morph_close_radius=int(state.get("morph_close_radius", 2)),
-                morph_open_radius=int(state.get("morph_open_radius", 1)),
-                use_texture=bool(state.get("use_texture", False)),
-                use_edge_split=bool(state.get("use_edge_split", False)),
             )
 
             self._detector_params_mtime = mtime
