@@ -1,6 +1,7 @@
 ﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout, QApplication, QSplitter, QGroupBox, QFrame, QSizePolicy
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from Image_processing.overlay_draw import draw_picking_progress
 import cv2
 
 class StepPickingWidget(QWidget):
@@ -184,35 +185,7 @@ class StepPickingWidget(QWidget):
         if base is None:
             return
         im = base.copy()
-
-        total = len(self._points)
-        if total == 0:
-            self._show(im)
-            return
-
-        current_idx = current if current is not None and 0 <= current < total else None
-
-        points_np = [(int(x), int(y)) for (x, y) in self._points]
-
-        for i in range(1, len(points_np)):
-            p0 = points_np[i - 1]
-            p1 = points_np[i]
-            if current_idx is not None and i <= current_idx:
-                cv2.line(im, p0, p1, (40, 170, 40), 2, cv2.LINE_AA)
-            else:
-                cv2.line(im, p0, p1, (120, 120, 120), 1, cv2.LINE_AA)
-
-        for i, (x, y) in enumerate(points_np):
-            if current_idx is not None and i < current_idx:
-                cv2.circle(im, (x, y), 7, (40, 170, 40), -1, cv2.LINE_AA)
-                cv2.circle(im, (x, y), 10, (0, 70, 0), 2, cv2.LINE_AA)
-            elif current_idx is not None and i == current_idx:
-                cv2.circle(im, (x, y), 10, (0, 0, 255), -1, cv2.LINE_AA)
-                cv2.circle(im, (x, y), 15, (255, 255, 255), 2, cv2.LINE_AA)
-            else:
-                cv2.circle(im, (x, y), 6, (0, 180, 255), -1, cv2.LINE_AA)
-                cv2.circle(im, (x, y), 9, (0, 90, 130), 1, cv2.LINE_AA)
-
+        draw_picking_progress(im, self._points, current_idx=current)
         self._show(im)
 
     # ---------- commands ----------

@@ -121,7 +121,6 @@ class PipelineContext:
                 state = yaml.safe_load(f) or {}
 
             self.detector.set_params(
-                split_threshold=float(state.get("split_threshold", 40)),
                 saturation_min=int(state.get("saturation_min", 50)),
                 value_min=int(state.get("value_min", 50)),
             )

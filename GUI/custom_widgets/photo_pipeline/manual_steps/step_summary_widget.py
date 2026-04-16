@@ -1,8 +1,8 @@
-﻿import numpy as np
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox, QDialog, QSplitter, QGroupBox, QFrame, QSizePolicy
+﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox, QDialog, QSplitter, QGroupBox, QFrame, QSizePolicy
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QTimer
 import cv2
+from Image_processing.overlay_draw import draw_mask_outline, draw_points_simple
 
 from File_managers import config_manager
 from File_managers import dish_profile_manager
@@ -92,14 +92,14 @@ class StepSummaryWidget(QWidget):
         roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
         display_img = display_base.copy()
 
-        # --- draw Petri dish outline (yellow) only if not from ROI widget ---
+        # --- draw Petri dish outline only if not from ROI widget ---
         if getattr(self.context, "display_image", None) is None:
-            self._apply_dish_outline(display_img, color=(255, 0, 0), thickness=3)
+            mask = getattr(self.context, "mask", None)
+            draw_mask_outline(display_img, mask, color=(255, 0, 0), thickness=3)
 
         # draw ROI points (if not already drawn by ROI widget)
         if getattr(self.context, "display_image", None) is None:
-            for pt in roi_points:
-                cv2.drawMarker(display_img, pt, (0, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=10, thickness=2)
+            draw_points_simple(display_img, roi_points, color=(0, 0, 255), radius=5, thickness=2)
 
         rgb_image = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape
@@ -139,31 +139,6 @@ class StepSummaryWidget(QWidget):
             return False
 
         return True
-     
-    def _apply_dish_outline(self, img, color=(255, 0, 0), thickness=3):
-        """
-        Draw the Petri dish outline (from context.mask) on img in-place.
-        color = BGR (default: yellow), thickness in pixels.
-        """
-        mask = getattr(self.context, "mask", None)
-        if mask is None:
-            return img
-        try:
-            # ensure uint8 binary
-            m = mask
-            if m.dtype != np.uint8:
-                m = m.astype(np.uint8)
-            if m.ndim == 3:
-                m = cv2.cvtColor(m, cv2.COLOR_BGR2GRAY)
-            # threshold in case it isn't strictly 0/255
-            _, m = cv2.threshold(m, 1, 255, cv2.THRESH_BINARY)
-            cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if cnts:
-                cv2.drawContours(img, cnts, -1, color, thickness)
-        except Exception as e:
-            if self.log_widget:
-                self.log_widget.append_log(f"[WARNING] Dish outline draw failed: {e}")
-        return img
 
 
 

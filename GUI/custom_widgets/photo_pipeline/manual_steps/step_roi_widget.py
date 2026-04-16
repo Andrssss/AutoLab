@@ -9,6 +9,7 @@ import json
 import yaml
 from datetime import datetime
 from Image_processing.BacteriaDetector import BacteriaDetector
+from Image_processing.overlay_draw import draw_mask_outline, draw_rois, draw_drag_rect, draw_contours, draw_points, draw_points_simple
 
 class StepROIWidget(QWidget):
     MODE_POINTS = "points"
@@ -131,20 +132,12 @@ class StepROIWidget(QWidget):
         right.setSpacing(10)
 
         # --- Detector controls ---
-        # sliders and checkboxes
-        # Num Colors removed
-        self.slider_split = QSlider(Qt.Horizontal)
-        self.slider_split.setRange(1, 100)
-        self.slider_split.setValue(40)
         self.slider_sat = QSlider(Qt.Horizontal)
         self.slider_sat.setRange(0, 255)
         self.slider_sat.setValue(50)
         self.slider_val = QSlider(Qt.Horizontal)
         self.slider_val.setRange(0, 255)
         self.slider_val.setValue(50)
-
-        self.btn_export_csv = QPushButton("Export CSV")
-        self.btn_export_csv.clicked.connect(self._on_export_csv)
 
         # realtime debounce timer
         self._detector_timer = QTimer(self)
@@ -155,11 +148,8 @@ class StepROIWidget(QWidget):
         self.detector = BacteriaDetector()
 
         # connect sliders to debounce
-        # Num Colors logic removed
-        self.slider_split.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(100))
         self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(100))
-        # Auto-K button removed
 
 
         # Areas list
@@ -196,14 +186,10 @@ class StepROIWidget(QWidget):
         detector_group = QGroupBox("Bacteria Detector")
         detector_layout = QVBoxLayout()
         detector_layout.setSpacing(6)
-        # Num Colors and Auto-K removed from layout
-        detector_layout.addWidget(QLabel("Split Threshold %"))
-        detector_layout.addWidget(self.slider_split)
         detector_layout.addWidget(QLabel("Saturation Min"))
         detector_layout.addWidget(self.slider_sat)
         detector_layout.addWidget(QLabel("Value Min"))
         detector_layout.addWidget(self.slider_val)
-        detector_layout.addWidget(self.btn_export_csv)
         detector_group.setLayout(detector_layout)
 
         right.addWidget(roi_group, 2)
@@ -230,11 +216,6 @@ class StepROIWidget(QWidget):
 
         self.load_from_context()
         self._refresh_roi_lists()
-        # swatches area
-        self._swatches_container = QWidget()
-        self._swatches_layout = QHBoxLayout()
-        self._swatches_container.setLayout(self._swatches_layout)
-        right.addWidget(self._swatches_container)
         # enable key events
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -252,7 +233,6 @@ class StepROIWidget(QWidget):
         """Save all slider positions to YAML config file."""
         try:
             state = {
-                "split_threshold": self.slider_split.value(),
                 "saturation_min": self.slider_sat.value(),
                 "value_min": self.slider_val.value(),
             }
@@ -273,7 +253,6 @@ class StepROIWidget(QWidget):
                 state = yaml.safe_load(f)
             if not state:
                 return
-            self.slider_split.setValue(state.get("split_threshold", 40))
             self.slider_sat.setValue(state.get("saturation_min", 50))
             self.slider_val.setValue(state.get("value_min", 50))
         except Exception as e:
@@ -346,53 +325,16 @@ class StepROIWidget(QWidget):
             return None
 
         img = self.display_image.copy()
-
-        # user ROIs (orange) + highlight selected (thicker, white overlay)
-        for i, (x, y, w, h) in enumerate(self.rois):
-            color = (0, 180, 255)
-            thickness = 2
-            if i == self.selected_area_idx:
-                cv2.rectangle(img, (x-1, y-1), (x + w+1, y + h+1), (255, 255, 255), 3)
-                thickness = 2
-            cv2.rectangle(img, (x, y), (x + w, y + h), color, thickness)
-            cv2.putText(img, f"A{i}", (x+3, y+16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 180, 255), 1, cv2.LINE_AA)
-
-        # currently drawn rectangle (during drag)
-        if self.current_rect is not None:
-            x, y, w, h = self.current_rect
-            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 80, 0), 2)
-
-        # analyzer contours (green outlines)
-        for idx, poly in enumerate(getattr(self, "detected_contours", [])):
-            cnt = np.array(poly, dtype=np.int32)
-            if cnt.ndim == 2 and len(cnt) >= 3:
-                cv2.polylines(img, [cnt], isClosed=True, color=(0, 255, 0), thickness=2)
-
-        # selected points (red crosses + labels) + highlight selected (filled circle)
-        for j, (px, py) in enumerate(self.roi_points):
-            if j == self.selected_point_idx:
-                # white halo
-                cv2.circle(img, (int(px), int(py)), self.selected_point_radius + self.selected_point_halo,
-                           (255, 255, 255), -1)
-                # big red dot
-                cv2.circle(img, (int(px), int(py)), self.selected_point_radius, (0, 0, 255), -1)
-            else:
-                cv2.drawMarker(
-                    img, (int(px), int(py)),
-                    (0, 0, 255),
-                    markerType=cv2.MARKER_TILTED_CROSS,
-                    markerSize=self.unselected_marker_size,
-                    thickness=2
-                )
-            cv2.putText(img, f"P{j}", (int(px) + 6, int(py) - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-
-        # (optional) merged_points as green circles
+        draw_rois(img, self.rois, selected_idx=self.selected_area_idx)
+        draw_drag_rect(img, self.current_rect)
+        draw_contours(img, getattr(self, "detected_contours", []))
+        draw_points(img, self.roi_points, selected_idx=self.selected_point_idx,
+                    selected_radius=self.selected_point_radius,
+                    halo=self.selected_point_halo,
+                    marker_size=self.unselected_marker_size)
         merged = getattr(self.context, "merged_points", None)
         if merged:
-            for (mx, my) in merged:
-                cv2.circle(img, (int(mx), int(my)), 5, (0, 200, 0), 2)
-
+            draw_points_simple(img, merged, color=(0, 200, 0), radius=5, thickness=2)
         return img
 
     def _normalize_for_json(self, value):
@@ -437,7 +379,6 @@ class StepROIWidget(QWidget):
                 "source_image": img_path,
                 "snapshot_file": snapshot_rel,
                 "detector_params": {
-                    "split_threshold": int(self.slider_split.value()),
                     "saturation_min": int(self.slider_sat.value()),
                     "value_min": int(self.slider_val.value()),
                     # Auto-K related fields removed
@@ -597,8 +538,7 @@ class StepROIWidget(QWidget):
         mask = getattr(self.context, "mask", None)
         if mask is None:
             return img
-        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(img, cnts, -1, (255, 0, 0), 3)  # blue outline
+        draw_mask_outline(img, mask, color=(255, 0, 0), thickness=3)
         return img
 
     # ---------- mouse ----------
@@ -898,7 +838,6 @@ class StepROIWidget(QWidget):
     # ---------- Detector helpers ----------
     def _apply_detector_params(self):
         self.detector.set_params(
-            split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value()
         )
@@ -907,7 +846,6 @@ class StepROIWidget(QWidget):
         if not hasattr(self, 'context') or not hasattr(self.context, 'detector'):
             return
         params = dict(
-            split_threshold=self.slider_split.value(),
             saturation_min=self.slider_sat.value(),
             value_min=self.slider_val.value()
         )
@@ -967,25 +905,6 @@ class StepROIWidget(QWidget):
         ov, centers, objs = self.detector.detect(img, mask, roi_rect=None)
         return ov, centers, objs
 
-    def _on_export_csv(self):
-        # run detection over whole image and export CSV
-        img = getattr(self.context, "image", None)
-        if img is None:
-            if self.log_widget:
-                self.log_widget.append_log("[INFO] No image to export.")
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Save detection CSV", os.path.expanduser("~"), "CSV files (*.csv)")
-        if not path:
-            return
-        ov, centers, objs = self._run_detector_on_whole()
-        try:
-            self.detector.export_csv(objs, path)
-            if self.log_widget:
-                self.log_widget.append_log(f"[SAVE] CSV -> {path}")
-        except Exception as e:
-            if self.log_widget:
-                self.log_widget.append_log(f"[ERROR] Export CSV failed: {e}")
-
     def on_next_save(self):
         """Save annotated picture (with outline/ROIs/points/contours) and the mask. Also save slider state."""
         # Save slider positions before moving to next step
@@ -1014,20 +933,9 @@ class StepROIWidget(QWidget):
             # build annotated image
             out = img.copy()
             self._apply_mask_outline(out)
-
-            # user ROIs (orange)
-            for (x, y, w, h) in self.rois:
-                cv2.rectangle(out, (x, y), (x + w, y + h), (0, 180, 255), 2)
-
-            # analyzer contours (blue)
-            for poly in getattr(self, "detected_contours", []):
-                cnt = np.array(poly, dtype=np.int32)
-                if cnt.ndim == 2 and len(cnt) >= 3:
-                    cv2.polylines(out, [cnt], isClosed=True, color=(255, 0, 0), thickness=2)
-
-            # points (green filled)
-            for (px, py) in self.roi_points:
-                cv2.circle(out, (int(px), int(py)), 5, (0, 200, 0), -1)
+            draw_rois(out, self.rois)
+            draw_contours(out, getattr(self, "detected_contours", []))
+            draw_points_simple(out, self.roi_points, color=(0, 200, 0), radius=5, thickness=-1)
 
             annot_path = os.path.join(out_dir, f"{base}_annotated.png")
             # log_widget removed (debug only)
