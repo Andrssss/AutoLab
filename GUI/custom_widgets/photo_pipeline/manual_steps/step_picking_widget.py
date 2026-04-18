@@ -285,7 +285,7 @@ class StepPickingWidget(QWidget):
 
     # ---------- FSM tick ----------
     def _tick(self):
-        # stopped?
+        # stoppe  d?
         if not self._active:
             self._engine.stop()
             return

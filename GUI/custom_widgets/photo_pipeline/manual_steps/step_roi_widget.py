@@ -8,12 +8,15 @@ import os
 import json
 import yaml
 from datetime import datetime
+from File_managers import config_manager
 from Image_processing.BacteriaDetector import BacteriaDetector
 from Image_processing.overlay_draw import draw_mask_outline, draw_rois, draw_drag_rect, draw_contours, draw_points, draw_points_simple
 
 class StepROIWidget(QWidget):
-    MODE_POINTS = "points"
-    MODE_AREAS  = "areas"
+    MODE_POINTS = 0
+    MODE_AREAS  = 1
+
+    DETECTOR_PARAMS_PATH = os.path.join(config_manager.CONFIG_DIR, "detector_params.yaml")
 
     def __init__(self, context, image_path=None, log_widget=None, parent=None):
         super().__init__(parent)
@@ -39,7 +42,6 @@ class StepROIWidget(QWidget):
 
         # analyzer drawings (we store contours, not boxes)
         self.detected_contours = []  # list of polygons (list[list[x,y]])
-        self.detected_contour_labels = []
 
         self.selected_point_radius = 12  # size of the selected point
         self.selected_point_halo = 4  # extra white halo thickness around it
@@ -166,10 +168,6 @@ class StepROIWidget(QWidget):
         self.btn_point_delete = QPushButton("Delete (Point)")
         self.btn_point_delete.clicked.connect(self._delete_selected_point)
 
-        # Quick help for deletion
-        hint = QLabel("Tip: after selecting an item, the Delete key also works.")
-        hint.setStyleSheet("color: gray; font-size: 11px;")
-
         roi_group = QGroupBox("ROI Lists")
         roi_layout = QVBoxLayout()
         roi_layout.setSpacing(6)
@@ -180,7 +178,6 @@ class StepROIWidget(QWidget):
         roi_layout.addWidget(lbl_points)
         roi_layout.addWidget(self.list_points, 1)
         roi_layout.addWidget(self.btn_point_delete)
-        roi_layout.addWidget(hint)
         roi_group.setLayout(roi_layout)
 
         detector_group = QGroupBox("Bacteria Detector")
@@ -220,15 +217,6 @@ class StepROIWidget(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
     # ---------- Slider state persistence ----------
-    def _get_slider_config_path(self):
-        """Get path to detector_params.yaml in config_profiles."""
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        # Navigate up to project root: GUI/custom_widgets/photo_pipeline/manual_steps -> AutoLab
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(script_dir))))
-        config_dir = os.path.join(project_root, "config_profiles")
-        os.makedirs(config_dir, exist_ok=True)
-        return os.path.join(config_dir, "detector_params.yaml")
-
     def _save_slider_state(self):
         """Save all slider positions to YAML config file."""
         try:
@@ -236,7 +224,7 @@ class StepROIWidget(QWidget):
                 "saturation_min": self.slider_sat.value(),
                 "value_min": self.slider_val.value(),
             }
-            path = self._get_slider_config_path()
+            path = self.DETECTOR_PARAMS_PATH
             with open(path, "w") as f:
                 yaml.dump(state, f, default_flow_style=False)
         except Exception as e:
@@ -246,7 +234,7 @@ class StepROIWidget(QWidget):
     def _load_slider_state(self):
         """Load slider positions from YAML config file if available."""
         try:
-            path = self._get_slider_config_path()
+            path = self.DETECTOR_PARAMS_PATH
             if not os.path.exists(path):
                 return
             with open(path, "r") as f:
@@ -670,7 +658,6 @@ class StepROIWidget(QWidget):
         self.roi_points.clear()
         self.current_rect = None
         self.detected_contours = []
-        self.detected_contour_labels = []
         self.selected_area_idx = -1
         self.selected_point_idx = -1
 
@@ -698,12 +685,10 @@ class StepROIWidget(QWidget):
         res_list = []
         auto_pts = []
         contours = []
-        contour_labels = []
 
         self._sync_params_to_context_detector()
         for rect in self.rois:
             try:
-                x, y, w, h = rect
                 overlay, centers, objs = self.context.detector.detect(
                     image_bgr=img,
                     full_mask=self.context.mask,
@@ -720,13 +705,11 @@ class StepROIWidget(QWidget):
             for s in r.get("stats", []):
                 if "contour" in s:
                     contours.append(s["contour"])
-                    contour_labels.append(None)
 
         # add detected centers to selected list
         self._append_points_to_selection(auto_pts)
         # remember detected contours
         self.detected_contours = contours
-        self.detected_contour_labels = contour_labels
 
         if hasattr(self.context, "on_analysis_done"):
             self.context.on_analysis_done(res_list)
@@ -775,7 +758,6 @@ class StepROIWidget(QWidget):
         self._append_points_to_selection(auto_pts)
 
         self.detected_contours = [s["contour"] for s in objs if "contour" in s]
-        self.detected_contour_labels = [None for s in objs if "contour" in s]
 
         if hasattr(self.context, "on_analysis_done"):
             self.context.on_analysis_done(res)
@@ -806,7 +788,6 @@ class StepROIWidget(QWidget):
                     break
             if keep:
                 self.roi_points.append((int(nx), int(ny)))
-        # after bulk add, keep list in sync
         self._refresh_roi_lists()
 
     def _prepare_detector_for_analysis(self):
@@ -858,7 +839,6 @@ class StepROIWidget(QWidget):
         # apply params and run a preview on currently visible region (ROIs if present else whole)
         self._apply_detector_params()
         fresh_contours = []
-        fresh_labels = []
         # run on whole if no ROIs selected, else on ALL ROIs for preview
         if len(self.rois) > 0:
             # preview ALL ROIs - combine results into single display
@@ -869,7 +849,6 @@ class StepROIWidget(QWidget):
                 for obj in objs:
                     if "contour" in obj:
                         fresh_contours.append(obj["contour"])
-                        fresh_labels.append(None)
 
             self.display_image = display_base
         else:
@@ -877,13 +856,11 @@ class StepROIWidget(QWidget):
             for obj in objs:
                 if "contour" in obj:
                     fresh_contours.append(obj["contour"])
-                    fresh_labels.append(None)
 
             display_base = self.context.image.copy()
             self.display_image = display_base
 
         self.detected_contours = fresh_contours
-        self.detected_contour_labels = fresh_labels
         self._apply_mask_outline(self.display_image)
         self.update_image_label()
 
@@ -937,8 +914,7 @@ class StepROIWidget(QWidget):
             draw_contours(out, getattr(self, "detected_contours", []))
             draw_points_simple(out, self.roi_points, color=(0, 200, 0), radius=5, thickness=-1)
 
-            annot_path = os.path.join(out_dir, f"{base}_annotated.png")
-            # log_widget removed (debug only)
+
 
             # save mask (if present)
             mask = getattr(self.context, "mask", None)

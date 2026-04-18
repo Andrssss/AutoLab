@@ -178,6 +178,3 @@ class PipelineContext:
         if self.mask is not None:  w.petri_mask = self.mask
         if refresh and hasattr(w, "update_petri_params"):
             w.update_petri_params(force_detect=False)
-
-
-
