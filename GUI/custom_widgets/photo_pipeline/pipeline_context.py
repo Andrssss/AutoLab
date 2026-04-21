@@ -12,11 +12,11 @@ import yaml
 class PipelineContext:
     def __init__(self):
         # ---- runtime data ----
-        self.image: Optional[np.ndarray] = None            # BGR
-        self.mask: Optional[np.ndarray] = None             # uint8 0/255
-        self.filtered_image: Optional[np.ndarray] = None   # preview/overlay
-        self.settings: Dict[str, Any] = {}                 # step params etc.
-        self.analysis: Dict[str, Any] = {}                 # misc cache
+        self.image: Optional[np.ndarray] = None
+        self.mask: Optional[np.ndarray] = None           
+        self.filtered_image: Optional[np.ndarray] = None 
+        self.settings: Dict[str, Any] = {}                 
+        self.analysis: Dict[str, Any] = {}               
 
         self.detector = BacteriaDetector()
         self.image_path: Optional[str] = None
@@ -25,7 +25,7 @@ class PipelineContext:
         self._detector_params_mtime: Optional[float] = None
 
         # user selections
-        self.rois_areas: List[Tuple[int, int, int, int]] = []  # (x,y,w,h)
+        self.rois_areas: List[Tuple[int, int, int, int]] = []  
         self.roi_points: List[Tuple[int, int]] = []
         self.merged_points: List[Tuple[int, int]] = []
 

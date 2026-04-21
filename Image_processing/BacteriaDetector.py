@@ -38,10 +38,7 @@ class BacteriaDetector:
 
         H, W = image_bgr.shape[:2]
         if roi_rect is None:
-            if full_mask is not None:
-                x, y, w, h = cv2.boundingRect(full_mask)
-            else:
-                x, y, w, h = 0, 0, W, H
+            x, y, w, h = 0, 0, W, H
         else:
             x, y, w, h = roi_rect
 
@@ -51,7 +48,10 @@ class BacteriaDetector:
 
         roi_mask = None
         if full_mask is not None:
-            roi_mask = full_mask[y:y+h, x:x+w]
+            if roi_rect is None:
+                roi_mask = full_mask
+            else:
+                roi_mask = full_mask[y:y+h, x:x+w]
 
         hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
 

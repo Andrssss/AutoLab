@@ -188,9 +188,37 @@ class StepPickingWidget(QWidget):
         draw_picking_progress(im, self._points, current_idx=current)
         self._show(im)
 
+    def _distance_sq(a, b):
+        dx = float(a[0]) - float(b[0])
+        dy = float(a[1]) - float(b[1])
+        return dx * dx + dy * dy
+
+    def _order_points_nearest_neighbor(self, points):
+        if not points:
+            return []
+
+        remaining = [(int(x), int(y)) for (x, y) in points]
+        ordered = []
+        current = remaining[0]
+
+        while remaining:
+            nearest_idx = 0
+            nearest_d = self._distance_sq(remaining[0], current)
+            for i in range(1, len(remaining)):
+                d = self._distance_sq(remaining[i], current)
+                if d < nearest_d:
+                    nearest_d = d
+                    nearest_idx = i
+            nxt = remaining.pop(nearest_idx)
+            ordered.append(nxt)
+            current = nxt
+
+        return ordered
+
     # ---------- commands ----------
     def start_picking(self):
-        self._points = list(self.context.roi_points) if self.context.roi_points is not None else []
+        roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
+        self._points = self._order_points_nearest_neighbor(roi_points)
         if not self._points:
             self.log_box.append("[ERROR] No ROI points.")
             return
@@ -198,18 +226,22 @@ class StepPickingWidget(QWidget):
             self.log_box.append("[ERROR] G-code control is not available.")
             return
 
-        if self._is_emergency_recovery_needed() and self._reconnect_required:
+        if not self.g_control.connected:
+            self.log_box.append("[ERROR] Not connected to machine.")
+            return
+
+        if self._reconnect_required:
             self.log_box.append("[INFO] Reconnecting to saved port before restart...")
             if not self.g_control.action_reconnect_saved_connection():
                 self.log_box.append("[ERROR] Reconnect failed (saved settings).")
                 return
             self._reconnect_required = False
 
-        if self._is_emergency_recovery_needed():
+        if self.g_control.is_emergency_latched():
             if not self.g_control.action_recover_from_emergency():
                 self.log_box.append("[ERROR] Emergency recovery failed (M999/reconnect).")
                 return
-            self.log_box.append("[INFO] Emergency recovery OK. Starting picking...")
+            self.log_box.append("[INFO] Emergency latch cleared. Starting picking...")
 
         # init FSM
         self._active = True
@@ -229,14 +261,14 @@ class StepPickingWidget(QWidget):
             self.log_box.append("[ERROR] G-code control is not available.")
             return
 
-        if self._is_emergency_recovery_needed() and self._reconnect_required:
+        if self._reconnect_required:
             self.log_box.append("[INFO] Reconnecting to saved port before continue...")
             if not self.g_control.action_reconnect_saved_connection():
                 self.log_box.append("[ERROR] Reconnect failed (saved settings).")
                 return
             self._reconnect_required = False
 
-        if self._is_emergency_recovery_needed():
+        if self.g_control.is_emergency_latched():
             if not self.g_control.action_recover_from_emergency():
                 self.log_box.append("[ERROR] Emergency recovery failed (M999/reconnect).")
                 return

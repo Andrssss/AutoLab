@@ -5,9 +5,7 @@ import cv2
 import numpy as np
 import math
 import os
-import json
 import yaml
-from datetime import datetime
 from File_managers import config_manager
 from Image_processing.BacteriaDetector import BacteriaDetector
 from Image_processing.overlay_draw import draw_mask_outline, draw_rois, draw_drag_rect, draw_contours, draw_points, draw_points_simple
@@ -68,7 +66,7 @@ class StepROIWidget(QWidget):
         self.image_label.mouseMoveEvent = self.on_mouse_move
         self.image_label.mouseReleaseEvent = self.on_mouse_release
 
-        self.instructions = QLabel("Mode: POINTS - Left-click add / Right-click remove. Switch mode to AREAS to draw rectangles.")
+        self.instructions = QLabel("Mode: POINTS - Left-click add. Switch mode to AREAS to draw rectangles.")
         self.instructions.setAlignment(Qt.AlignCenter)
         self.instructions.setWordWrap(True)
 
@@ -304,7 +302,6 @@ class StepROIWidget(QWidget):
         self.context.rois = self.rois
         self.context.rois_areas = self.rois
         self.context.roi_points = self.roi_points
-        self._save_slider_state()
 
     
 
@@ -324,69 +321,6 @@ class StepROIWidget(QWidget):
         if merged:
             draw_points_simple(img, merged, color=(0, 200, 0), radius=5, thickness=2)
         return img
-
-    def _normalize_for_json(self, value):
-        if isinstance(value, (np.integer, )):
-            return int(value)
-        if isinstance(value, (np.floating, )):
-            return float(value)
-        if isinstance(value, np.ndarray):
-            return value.tolist()
-        if isinstance(value, (list, tuple)):
-            return [self._normalize_for_json(v) for v in value]
-        if isinstance(value, dict):
-            return {str(k): self._normalize_for_json(v) for k, v in value.items()}
-        return value
-
-    def _save_analysis_snapshot(self, mode, results_payload=None):
-        """Persist current analyzed preview image + metadata for future comparison."""
-        try:
-            out_dir = getattr(self.context, "output_dir", None) or os.path.join(os.getcwd(), "debug")
-            history_dir = os.path.join(out_dir, "analysis_history")
-            os.makedirs(history_dir, exist_ok=True)
-
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            img_path = getattr(self.context, "image_path", None)
-            base = os.path.splitext(os.path.basename(img_path))[0] if isinstance(img_path, str) and img_path else "frame"
-
-            # Save exactly the currently rendered analysis view (same overlays as widget preview)
-            snap = self._compose_visualized_image()
-            if snap is None and getattr(self.context, "image", None) is not None:
-                snap = self.context.image.copy()
-                self._apply_mask_outline(snap)
-
-            snapshot_rel = None
-            if snap is not None:
-                snapshot_name = f"{base}_{mode}_{ts}.png"
-                snapshot_path = os.path.join(history_dir, snapshot_name)
-                cv2.imwrite(snapshot_path, snap)
-                snapshot_rel = snapshot_name
-            entry = {
-                "timestamp": ts,
-                "mode": mode,
-                "source_image": img_path,
-                "snapshot_file": snapshot_rel,
-                "detector_params": {
-                    "saturation_min": int(self.slider_sat.value()),
-                    "value_min": int(self.slider_val.value()),
-                    # Auto-K related fields removed
-                },
-                "roi_areas": self._normalize_for_json(list(self.rois)),
-                "roi_points": self._normalize_for_json(list(self.roi_points)),
-                "detected_contours_count": int(len(getattr(self, "detected_contours", []))),
-                "results": self._normalize_for_json(results_payload or {}),
-            }
-
-            history_log = os.path.join(history_dir, "analysis_history.jsonl")
-            with open(history_log, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-            if self.log_widget:
-                self.log_widget.append_log(f"[SAVE] Analysis snapshot -> {os.path.join(history_dir, snapshot_rel) if snapshot_rel else history_dir}")
-                self.log_widget.append_log(f"[SAVE] Analysis metadata -> {history_log}")
-        except Exception as e:
-            if self.log_widget:
-                self.log_widget.append_log(f"[WARNING] Analysis snapshot save failed: {e}")
 
     # ---------- rendering ----------
     def display_roi_image(self):
@@ -429,9 +363,9 @@ class StepROIWidget(QWidget):
         self.info_label.setText(txt)
 
         if self.mode == self.MODE_POINTS:
-            self.instructions.setText("Mode: POINTS - Left click: add point | Right click: delete nearest point | Double click image: Analyze selected")
+            self.instructions.setText("Mode: POINTS - Left click: add point")
         else:
-            self.instructions.setText("Mode: AREAS - Drag to draw rectangle | Right click: delete nearest area | Double click image: Analyze selected")
+            self.instructions.setText("Mode: AREAS - Drag to draw rectangle | Right click: delete nearest area")
 
     # ---------- list helpers ----------
     def _refresh_roi_lists(self):
@@ -564,16 +498,7 @@ class StepROIWidget(QWidget):
             pt = self._label_to_image_xy(event.pos())
             if pt is None:
                 return
-            if self.mode == self.MODE_POINTS and self.roi_points:
-                d = [math.hypot(px-pt[0], py-pt[1]) for (px, py) in self.roi_points]
-                i = int(np.argmin(d))
-                if d[i] < 25:
-                    self.roi_points.pop(i)
-                    self.selected_point_idx = -1
-                    self.update_image_label()
-                    self._refresh_roi_lists()
-                    self.save_to_context()
-            elif self.mode == self.MODE_AREAS and self.rois:
+            if self.mode == self.MODE_AREAS and self.rois:
                 centers = [((x+w/2), (y+h/2)) for (x, y, w, h) in self.rois]
                 d = [math.hypot(cx-pt[0], cy-pt[1]) for (cx, cy) in centers]
                 i = int(np.argmin(d))
@@ -584,9 +509,6 @@ class StepROIWidget(QWidget):
                     self._refresh_roi_lists()
                     self.save_to_context()
                     self._detector_timer.start(50)
-
-        if event.type() == event.MouseButtonDblClick:
-            self.analyze_selected()
 
     def on_mouse_move(self, event):
         if self.mode != self.MODE_AREAS or not self.dragging or self.drag_start_img is None:
@@ -722,16 +644,6 @@ class StepROIWidget(QWidget):
         self.save_to_context()
         self._refresh_roi_lists()
         self.update_image_label()
-        self._save_analysis_snapshot(
-            mode="selected_rois",
-            results_payload={
-                "roi_count": len(self.rois),
-                "result_count": len(res_list),
-                "detected_points_added": len(auto_pts),
-                "objects_per_roi": [len(r.get("stats", [])) for r in res_list],
-                "analysis_source": "context.detector"
-            }
-        )
 
     def analyze_whole(self):
         img = getattr(self.context, "image", None)
@@ -769,14 +681,6 @@ class StepROIWidget(QWidget):
         self.save_to_context()
         self._refresh_roi_lists()
         self.update_image_label()
-        self._save_analysis_snapshot(
-            mode="whole_dish",
-            results_payload={
-                "detected_points_added": len(auto_pts),
-                "objects_detected": len(objs),
-                "analysis_source": "context.detector"
-            }
-        )
 
     def _append_points_to_selection(self, pts, min_dist_px=8):
         """Append points to roi_points, avoiding near-duplicates."""
@@ -801,12 +705,6 @@ class StepROIWidget(QWidget):
         # Apply to local preview detector immediately
         try:
             self._apply_detector_params()
-        except Exception:
-            pass
-
-        # Persist so PipelineContext refresh reads fresh values
-        try:
-            self._save_slider_state()
         except Exception:
             pass
 
@@ -839,34 +737,20 @@ class StepROIWidget(QWidget):
         # apply params and run a preview on currently visible region (ROIs if present else whole)
         self._apply_detector_params()
         fresh_contours = []
-        # run on whole if no ROIs selected, else on ALL ROIs for preview
-        if len(self.rois) > 0:
-            # preview ALL ROIs - combine results into single display
-            display_base = self.context.image.copy()
-            
-            for rect in self.rois:
-                ov, centers, objs = self._run_detector_on_rect(rect)
-                for obj in objs:
-                    if "contour" in obj:
-                        fresh_contours.append(obj["contour"])
-
-            self.display_image = display_base
-        else:
-            ov, centers, objs = self._run_detector_on_whole()
+        rects = self.rois if self.rois else [None]
+        for rect in rects:
+            _, _, objs = self._run_detector(rect)
             for obj in objs:
                 if "contour" in obj:
                     fresh_contours.append(obj["contour"])
 
-            display_base = self.context.image.copy()
-            self.display_image = display_base
+        self.display_image = self.context.image.copy()
 
         self.detected_contours = fresh_contours
         self._apply_mask_outline(self.display_image)
         self.update_image_label()
 
-    
-
-    def _run_detector_on_rect(self, rect):
+    def _run_detector(self, rect=None):
         img = getattr(self.context, "image", None)
         if img is None:
             return None, [], []
@@ -874,65 +758,22 @@ class StepROIWidget(QWidget):
         ov, centers, objs = self.detector.detect(img, mask, roi_rect=rect)
         return ov, centers, objs
 
-    def _run_detector_on_whole(self):
+    def on_next_save(self):
+        self._save_slider_state()
+
         img = getattr(self.context, "image", None)
         if img is None:
-            return None, [], []
-        mask = getattr(self.context, "mask", None)
-        ov, centers, objs = self.detector.detect(img, mask, roi_rect=None)
-        return ov, centers, objs
-
-    def on_next_save(self):
-        """Save annotated picture (with outline/ROIs/points/contours) and the mask. Also save slider state."""
-        # Save slider positions before moving to next step
-        self._save_slider_state()
-        
-        # If new ROIs were drawn, run detector on them automatically
-        if self.rois:
-            try:
-                self._on_detector_params_apply()
-            except Exception as e:
-                if self.log_widget:
-                    self.log_widget.append_log(f"[INFO] Auto-detect on new ROIs: {e}")
-        
-        try:
-            img = getattr(self.context, "image", None)
-            if img is None:
-                if self.log_widget:
-                    self.log_widget.append_log("[INFO] No image to save.")
-                return
-
-            out_dir = getattr(self.context, "output_dir", None) or os.path.join(os.getcwd(), "debug")
-            img_path = getattr(self.context, "image_path", None)
-            base = os.path.splitext(os.path.basename(img_path))[0] if isinstance(img_path, str) and img_path else "frame"
-            os.makedirs(out_dir, exist_ok=True)
-
-            # build annotated image
-            out = img.copy()
-            self._apply_mask_outline(out)
-            draw_rois(out, self.rois)
-            draw_contours(out, getattr(self, "detected_contours", []))
-            draw_points_simple(out, self.roi_points, color=(0, 200, 0), radius=5, thickness=-1)
-
-
-
-            # save mask (if present)
-            mask = getattr(self.context, "mask", None)
-            if mask is not None:
-                mask_u8 = mask.astype(np.uint8) if mask.dtype != np.uint8 else mask
-                mask_path = os.path.join(out_dir, f"{base}_mask.png")
-                cv2.imwrite(mask_path, mask_u8)
-                if self.log_widget:
-                    self.log_widget.append_log(f"[SAVE] Mask -> {mask_path}")
-            
-            # Transfer the annotated display image to context for picking widget to use
-            self.context.display_image = out
-
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
             if self.log_widget:
-                self.log_widget.append_log(f"[ERROR] on_next_save failed: {e}")
+                self.log_widget.append_log("[INFO] No image to save.")
+            return
+
+        out = img.copy()
+        self._apply_mask_outline(out)
+        draw_rois(out, self.rois)
+        draw_contours(out, getattr(self, "detected_contours", []))
+        draw_points_simple(out, self.roi_points, color=(0, 200, 0), radius=5, thickness=-1)
+
+        self.context.display_image = out
 
     # ---------- keyboard delete shortcuts ----------
     def keyPressEvent(self, event):

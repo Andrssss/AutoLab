@@ -1,12 +1,8 @@
-﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox, QDialog, QSplitter, QGroupBox, QFrame, QSizePolicy
+﻿from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QSplitter, QGroupBox, QFrame, QSizePolicy
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QTimer
 import cv2
 from Image_processing.overlay_draw import draw_mask_outline, draw_points_simple
-
-from File_managers import config_manager
-from File_managers import dish_profile_manager
-
 
 class StepSummaryWidget(QWidget):
     def __init__(self, context, image_path=None, log_widget=None):
@@ -62,8 +58,6 @@ class StepSummaryWidget(QWidget):
         
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
-
-        self.next_btn.clicked.connect(self.try_advance)
 
         self.display_image_with_rois()
         self.display_roi_points()
@@ -126,19 +120,6 @@ class StepSummaryWidget(QWidget):
         self.roi_text.setText("\n".join(text_lines))
 
 
-    def try_advance(self):
-        try:
-            # Save ROI points under dish_id = 1
-            roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
-            dish_id = 1
-            dish_profile_manager.save_dish_roi_points(dish_id, roi_points)
-            self.log_widget.append_log(f"[INFO] ROI points saved for dish_id={dish_id}.")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"[ERROR] Failed to save ROI points:\n{e}")
-            return False
-
-        return True
 
 
 
