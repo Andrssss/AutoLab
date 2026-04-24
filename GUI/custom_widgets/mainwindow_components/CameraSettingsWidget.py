@@ -7,7 +7,7 @@ import platform
 from functools import partial
 
 
-class CameraSettingsDialog(QDialog):
+class CameraSettingsWidget(QDialog):
     def __init__(self, camera_index, zoom_level, zoom_offset_x, zoom_offset_y, blur_enabled, gain, exposure,
                   log_widget, main_window, parent=None):
         super().__init__(parent)
@@ -331,7 +331,6 @@ class CameraSettingsDialog(QDialog):
         self.gain = min(self.gain + 1.0, 255.0)
         if self.cap:
             self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
-        # Update GUI label to show current gain
         self.label_gain.setText(f"GAIN: {self.gain:.1f}")
 
     def decrease_gain(self):
@@ -340,24 +339,17 @@ class CameraSettingsDialog(QDialog):
             self.cap.set(cv2.CAP_PROP_GAIN, self.gain)
         self.label_gain.setText(f"GAIN: {self.gain:.1f}")
 
-
     def increase_exposure(self):
         self.exposure = min(self.exposure + 1.0, 13.0)
         if self.cap:
-            if platform.system() == "Linux":
-                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # on Linux, 1 is manual mode
-            else:
-                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # on Windows
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25) 
             self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
         self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
 
     def decrease_exposure(self):
         self.exposure = max(self.exposure - 1.0, -13.0)
         if self.cap:
-            if platform.system() == "Linux":
-                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # Linux
-            else:
-                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Windows
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25) 
             self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
         self.label_expo.setText(f"EXPO: {self.exposure:.1f}")
 

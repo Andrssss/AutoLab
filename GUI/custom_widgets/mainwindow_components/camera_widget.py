@@ -9,18 +9,18 @@ from PyQt5.QtGui import QImage, QPixmap
 import yaml
 from File_managers import config_manager
 from GUI.custom_widgets.photo_pipeline.manual_steps.manual_pipeline_widget import PipelineWidget
-from GUI.custom_widgets.mainwindow_components.CameraSettingsDialog import CameraSettingsDialog
+from GUI.custom_widgets.mainwindow_components.CameraSettingsWidget import CameraSettingsWidget
 
 
-class _CameraWorker(QThread):
+class CameraWorker(QThread):
     """Opens, reads, and closes its own cv2.VideoCapture entirely in the background thread."""
     frame_ready = pyqtSignal(object)   # emits numpy BGR frame
     error       = pyqtSignal(str)
 
-    def __init__(self, camera_index: int, fps: int = 30):
+    def __init__(self, camera_index: int):
         super().__init__()
         self._index   = camera_index
-        self._fps     = max(1, fps)
+        self._fps     = 30
         self._running = False
 
     def run(self):
@@ -28,8 +28,7 @@ class _CameraWorker(QThread):
         if not cap.isOpened():
             self.error.emit(f"[ERROR] Could not open camera {self._index}.")
             return
-        self._running = True
-        interval = 1.0 / self._fps
+        self._running = True  
         while self._running:
             ret, frame = cap.read()
             if ret:
@@ -38,8 +37,7 @@ class _CameraWorker(QThread):
                 self.error.emit("[WARN] Camera read failed (no frame).")
                 time.sleep(0.1)
                 continue
-            elapsed = time.perf_counter() % interval
-            time.sleep(max(0.005, interval - elapsed))
+            time.sleep(1.0 / self._fps ) #  30 FPS -> circa 33 ms per frame 
         cap.release()
 
     def request_stop(self):
@@ -73,7 +71,7 @@ class CameraWidget(QWidget):
         self.gain          = camera_settings.get("gain",       0.0)
         self.exposure      = camera_settings.get("exposure",  -6.0)
 
-        self._worker: _CameraWorker | None = None
+        self._worker: CameraWorker | None = None
         self._is_running = False   # tracks whether capture is active
 
         # wire the detection-done signal (must be done before initUI calls populate_camera_list)
@@ -184,6 +182,8 @@ class CameraWidget(QWidget):
         if self.available_cams:
             self.combo_cameras.setCurrentIndex(0)
             self.load_camera_index_from_yaml()
+            if not self._is_running:
+                self.on_play()
 
     def set_camera(self, index):
         """Load settings for index. Does NOT start capture (no blocking cap open)."""
@@ -207,7 +207,7 @@ class CameraWidget(QWidget):
         """Start capture for *index*. Always non-blocking."""
         self._kill_worker()
         self.camera_index = index
-        self._worker = _CameraWorker(index, fps=30)
+        self._worker = CameraWorker(index)
         self._worker.frame_ready.connect(self._on_frame_ready)
         self._worker.error.connect(self.log_widget.append_log)
         self._worker.finished.connect(self._worker.deleteLater)
@@ -253,7 +253,6 @@ class CameraWidget(QWidget):
         self.label_camera.clear()
         self.label_camera.setText("Camera Feed")
 
-    @pyqtSlot(object)
     def _on_frame_ready(self, frame):
         """Runs on the main thread – display + deferred capture logic only."""
         self.current_frame = frame
@@ -292,7 +291,7 @@ class CameraWidget(QWidget):
             return
         was_running = self._is_running
         self._kill_worker()
-        dialog = CameraSettingsDialog(
+        dialog = CameraSettingsWidget(
             self.camera_index,
             self.zoom_level, self.zoom_offset_x, self.zoom_offset_y,
             self.blur_enabled, self.gain, self.exposure,
