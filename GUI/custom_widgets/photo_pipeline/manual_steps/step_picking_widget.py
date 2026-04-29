@@ -85,7 +85,6 @@ class StepPickingWidget(QWidget):
         self._active = False
         self._paused = False
         self._idx = -1                   # current ROI index
-        self._wait = 0                   # ticks remaining during dwell
         self._awaiting_motion = False    # True while waiting for queued move to fully complete
         self._points = []                # cached roi_points
         self._reconnect_required = False
@@ -247,7 +246,6 @@ class StepPickingWidget(QWidget):
         self._active = True
         self._paused = False
         self._idx = -1
-        self._wait = 0
         self._awaiting_motion = False
         self._resume_after_stop_available = False
         self._draw_progress(current=None)
@@ -261,21 +259,15 @@ class StepPickingWidget(QWidget):
             self.log_box.append("[ERROR] G-code control is not available.")
             return
 
-        if self._reconnect_required:
-            self.log_box.append("[INFO] Reconnecting to saved port before continue...")
+        if not self.g_control.connected:
+            self.log_box.append("[INFO] Not connected – reconnecting to saved port...")
             if not self.g_control.action_reconnect_saved_connection():
-                self.log_box.append("[ERROR] Reconnect failed (saved settings).")
+                self.log_box.append("[ERROR] Reconnect failed.")
                 return
-            self._reconnect_required = False
-
-        if self.g_control.is_emergency_latched():
-            if not self.g_control.action_recover_from_emergency():
-                self.log_box.append("[ERROR] Emergency recovery failed (M999/reconnect).")
-                return
+            self.log_box.append("[INFO] Reconnected successfully.")
 
         self._active = True
         self._paused = False
-        self._wait = 0
         self._awaiting_motion = False
         self._engine.start()
         self.log_box.append("[INFO] Continued from last ROI position.")
@@ -292,8 +284,7 @@ class StepPickingWidget(QWidget):
         self._resume_after_stop_available = bool(self._active or self._idx >= 0)
         self._trigger_emergency_stop_like_manual_control()
         self._stop_engine()
-        self._reconnect_required = True
-        self.log_box.append("[INFO] Pipetting stopped (emergency stop sent).")
+        self.log_box.append("[INFO] Pipetting stopped.")
 
     def _trigger_emergency_stop_like_manual_control(self):
         try:
@@ -305,8 +296,11 @@ class StepPickingWidget(QWidget):
                     control_widget.paused = True
                 for t in getattr(control_widget, "timers", {}).values():
                     t.stop()
-            if self.g_control:
-                self.g_control.action_emergency_stop(send_reset=False)
+            if self.g_control and self.g_control.ser and self.g_control.ser.is_open:
+                self.g_control.ser.write(b"M410\n")
+                self.g_control.ser.write(b"M18\n")
+                self.g_control.ser.flush()
+                self.log_box.append("[EMERGENCY STOP] M410 + M18 sent – motion stopped, connection kept.")
         except Exception as e:
             self.log_box.append(f"[ERROR] Emergency stop failed: {e}")
 
@@ -330,11 +324,6 @@ class StepPickingWidget(QWidget):
             if self.g_control and self.g_control.has_pending_motion_commands():
                 return
             self._awaiting_motion = False
-
-        # waiting phase?
-        if self._wait > 0:
-            self._wait -= 1
-            return
 
         # move to next point
         self._idx += 1
@@ -365,7 +354,6 @@ class StepPickingWidget(QWidget):
 
         # wait for actual motion completion before moving to next ROI
         self._awaiting_motion = True
-        self._wait = 0
 
     # ---------- Qt cleanup ----------
     def closeEvent(self, event):

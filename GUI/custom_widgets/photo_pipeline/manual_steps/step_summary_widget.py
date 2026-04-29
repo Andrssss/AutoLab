@@ -2,7 +2,7 @@
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QTimer
 import cv2
-from Image_processing.overlay_draw import draw_mask_outline, draw_points_simple
+from Image_processing.overlay_draw import draw_mask_outline
 
 class StepSummaryWidget(QWidget):
     def __init__(self, context, image_path=None, log_widget=None):
@@ -83,17 +83,12 @@ class StepSummaryWidget(QWidget):
             self.image_label.setText("No image loaded.")
             return
 
-        roi_points = list(self.context.roi_points) if self.context.roi_points is not None else []
         display_img = display_base.copy()
 
-        # --- draw Petri dish outline only if not from ROI widget ---
+        # Fallback: original image + Petri outline only (no points).
         if getattr(self.context, "display_image", None) is None:
             mask = getattr(self.context, "mask", None)
             draw_mask_outline(display_img, mask, color=(255, 0, 0), thickness=3)
-
-        # draw ROI points (if not already drawn by ROI widget)
-        if getattr(self.context, "display_image", None) is None:
-            draw_points_simple(display_img, roi_points, color=(0, 0, 255), radius=5, thickness=2)
 
         rgb_image = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape

@@ -10,6 +10,7 @@ from GUI.custom_widgets.openable_widgets.marlin_config_window import MarlinConfi
 from File_managers.config_manager import ensure_settings_yaml_exists
 from Pozitioner_and_Communicater.CommandSender import CommandSender
 from GUI.custom_widgets.openable_widgets.motion_calibration_window import MotionCalibrationWindow
+from GUI.custom_widgets.openable_widgets.pixel_calibration_window import PixelCalibrationWindow
 
 
 class _StderrToLog:
@@ -80,6 +81,11 @@ class MainWindow(QMainWindow):
         marlin_config_action = QAction("Marlin config", self)
         marlin_config_action.triggered.connect(self.open_marlin_config)
         settings_menu.addAction(marlin_config_action)
+
+        # Pixel / mm calibration
+        pixel_calib_action = QAction("Pixel / mm calibration", self)
+        pixel_calib_action.triggered.connect(self.open_pixel_calibration)
+        settings_menu.addAction(pixel_calib_action)
 
         # Pipeline fullscreen toggle
         from File_managers import config_manager as _cm
@@ -333,3 +339,9 @@ class MainWindow(QMainWindow):
         # keep a ref so it isn't GC'd
         self._config_refs = getattr(self, "_config_refs", [])
         self._config_refs.append(self.motion_cal_win)
+
+    def open_pixel_calibration(self):
+        self.pixel_calib_win = PixelCalibrationWindow(self.g_control, self.camera_widget, self.log_widget)
+        self.pixel_calib_win.show()
+        self._config_refs = getattr(self, "_config_refs", [])
+        self._config_refs.append(self.pixel_calib_win)
