@@ -9,6 +9,7 @@ import yaml
 from File_managers import config_manager
 from Image_processing.BacteriaDetector import BacteriaDetector
 from Image_processing.overlay_draw import draw_mask_outline, draw_rois, draw_drag_rect, draw_contours, draw_points, draw_points_simple
+from GUI.custom_widgets.photo_pipeline.hsv_visualizer_widget import HSVVisualizerWidget
 
 class StepROIWidget(QWidget):
     MODE_POINTS = 0
@@ -147,9 +148,21 @@ class StepROIWidget(QWidget):
         # detector instance
         self.detector = BacteriaDetector()
 
+        # HSV filter visualizer, driven by the two sliders above
+        self.hsv_view = HSVVisualizerWidget(
+            saturation_min=self.slider_sat.value(),
+            value_min=self.slider_val.value(),
+        )
+
         # connect sliders to debounce
-        self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(100))
-        self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(100))
+        self.slider_sat.valueChanged.connect(lambda _: self._detector_timer.start(40))
+        self.slider_val.valueChanged.connect(lambda _: self._detector_timer.start(40))
+        self.slider_sat.valueChanged.connect(lambda _: self._sync_hsv_view())
+        self.slider_val.valueChanged.connect(lambda _: self._sync_hsv_view())
+
+        # persist the thresholds as soon as the user lets go of a slider
+        self.slider_sat.sliderReleased.connect(self._save_slider_state)
+        self.slider_val.sliderReleased.connect(self._save_slider_state)
 
 
         # Areas list
@@ -185,6 +198,8 @@ class StepROIWidget(QWidget):
         detector_layout.addWidget(self.slider_sat)
         detector_layout.addWidget(QLabel("Value Min"))
         detector_layout.addWidget(self.slider_val)
+        detector_layout.addSpacing(6)
+        detector_layout.addWidget(self.hsv_view, 1)
         detector_group.setLayout(detector_layout)
 
         right.addWidget(roi_group, 2)
@@ -192,15 +207,16 @@ class StepROIWidget(QWidget):
 
         right_panel = QWidget()
         right_panel.setLayout(right)
-        right_panel.setMinimumWidth(280)
+        right_panel.setMinimumWidth(380)
 
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
         right_scroll.setFrameShape(QFrame.NoFrame)
         right_scroll.setWidget(right_panel)
-        right_scroll.setMinimumWidth(280)
+        right_scroll.setMinimumWidth(380)
 
-        content.addLayout(left, 3)
+        # the image gives up some width so the HSV views fit side by side
+        content.addLayout(left, 2)
         content.addWidget(right_scroll, 1)
 
         main.addLayout(content, 1)
@@ -241,9 +257,15 @@ class StepROIWidget(QWidget):
                 return
             self.slider_sat.setValue(state.get("saturation_min", 50))
             self.slider_val.setValue(state.get("value_min", 50))
+            self._sync_hsv_view()
         except Exception as e:
             if self.log_widget:
                 self.log_widget.append_log(f"[WARN] Failed to load slider state: {e}")
+
+    # ---------- HSV visualizer ----------
+    def _sync_hsv_view(self):
+        """Keep the embedded HSV cone / cross-section in step with the sliders."""
+        self.hsv_view.set_params(self.slider_sat.value(), self.slider_val.value())
 
     # ---------- context ----------
     def load_from_context(self):

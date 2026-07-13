@@ -17,23 +17,34 @@ class _StderrToLog:
     def __init__(self, log_widget):
         self.log_widget = log_widget
         self._buffer = ""
+        self._lock = threading.Lock()
 
     def write(self, text):
         if text is None:
             return 0
         s = str(text)
-        self._buffer += s
-        while "\n" in self._buffer:
-            line, self._buffer = self._buffer.split("\n", 1)
-            line = line.rstrip("\r")
-            if line.strip():
-                self.log_widget.append_log(line)
+        lines = []
+        with self._lock:
+            self._buffer += s
+            while "\n" in self._buffer:
+                line, self._buffer = self._buffer.split("\n", 1)
+                line = line.rstrip("\r")
+                if line.strip():
+                    lines.append(line)
+
+        for line in lines:
+            self.log_widget.append_log(line)
         return len(s)
 
     def flush(self):
-        if self._buffer.strip():
-            self.log_widget.append_log(self._buffer.rstrip("\r"))
-        self._buffer = ""
+        pending = ""
+        with self._lock:
+            if self._buffer.strip():
+                pending = self._buffer.rstrip("\r")
+            self._buffer = ""
+
+        if pending:
+            self.log_widget.append_log(pending)
 
 
 class MainWindow(QMainWindow):
