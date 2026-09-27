@@ -34,3 +34,6 @@ __pycache__/
 *.pyc
 .idea/
 .git.backup/
+# README images
+!docs/images/*.png
+!docs/images/*.jpg
